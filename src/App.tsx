@@ -6,6 +6,7 @@ import { MyVehicles } from "./pages/my-vehicles";
 import { Maintenance } from "./pages/maintenance";
 import { Layout } from "./pages/layout";
 import { Home } from "./pages/home";
+import Refueling from "./pages/refueling";
 
 export function App() {
   return (
@@ -16,6 +17,7 @@ export function App() {
             <Route index element={<Home />} />
             <Route path="vehicles" element={<MyVehicles />} />
             <Route path="maintenance" element={<Maintenance />} />
+            <Route path="refueling" element={<Refueling />} />
           </Route>
 
           <Route element={<AuthLayout />}>

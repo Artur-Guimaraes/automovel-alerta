@@ -1,4 +1,5 @@
-import { BrowserRouter, Routes, Route } from "react-router";
+// App.tsx (ou onde monta o Router)
+import { BrowserRouter, Routes, Route } from "react-router-dom"; // <-- dom
 import { AuthLayout } from "./pages/auth/auth-layout";
 import { SignUp } from "./pages/auth/sign-up";
 import { SignIn } from "./pages/auth/sign-in";
@@ -10,22 +11,22 @@ import Refueling from "./pages/refueling";
 
 export function App() {
   return (
-    <>
-      <BrowserRouter basename={process.env.BASE_URL}>
-        <Routes>
-          <Route path="/" element={<Layout />}>
-            <Route index element={<Home />} />
-            <Route path="vehicles" element={<MyVehicles />} />
-            <Route path="maintenance" element={<Maintenance />} />
-            <Route path="refueling" element={<Refueling />} />
-          </Route>
+    <BrowserRouter basename={import.meta.env.BASE_URL}>
+      {" "}
+      {/* <-- Vite */}
+      <Routes>
+        <Route path="/" element={<Layout />}>
+          <Route index element={<Home />} />
+          <Route path="vehicles" element={<MyVehicles />} />
+          <Route path="maintenance" element={<Maintenance />} />
+          <Route path="refueling" element={<Refueling />} />
+        </Route>
 
-          <Route element={<AuthLayout />}>
-            <Route path="register" element={<SignUp />} />
-            <Route path="login" element={<SignIn />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
-    </>
+        <Route element={<AuthLayout />}>
+          <Route path="register" element={<SignUp />} />
+          <Route path="login" element={<SignIn />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
   );
 }

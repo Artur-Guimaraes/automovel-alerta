@@ -8,6 +8,7 @@ import { Maintenance } from "./pages/maintenance";
 import { Layout } from "./pages/layout";
 import { Home } from "./pages/home";
 import Refueling from "./pages/refueling";
+import Expenses from "./pages/expenses";
 
 export function App() {
   return (
@@ -20,6 +21,7 @@ export function App() {
           <Route path="vehicles" element={<MyVehicles />} />
           <Route path="maintenance" element={<Maintenance />} />
           <Route path="refueling" element={<Refueling />} />
+          <Route path="expenses" element={<Expenses />} />
         </Route>
 
         <Route element={<AuthLayout />}>

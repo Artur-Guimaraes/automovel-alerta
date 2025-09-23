@@ -1,4 +1,4 @@
-import { Car, CarFront, HomeIcon, Wrench, Fuel } from "lucide-react";
+import { Car, CarFront, HomeIcon, Wrench, Fuel, Receipt } from "lucide-react";
 import { Separator } from "./ui/separator";
 import { ThemeToggle } from "./theme/theme-toggle";
 import { AccountMenu } from "./account-menu";
@@ -43,6 +43,14 @@ export function Header() {
             >
               <Fuel className="h-4 w-4" />
               Abastecimentos
+            </NavLink>
+
+            <NavLink
+              to="/expenses"
+              className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground"
+            >
+              <Receipt className="h-4 w-4" />
+              Gastos
             </NavLink>
           </nav>
         </div>

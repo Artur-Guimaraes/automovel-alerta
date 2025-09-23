@@ -619,7 +619,11 @@ export default function RefuelingPage() {
                         tick={{ fill: axisColor }}
                       />
                       <YAxis stroke={axisColor} tick={{ fill: axisColor }} />
-                      <Tooltip formatter={(v: any) => fBRL(Number(v))} />
+                      <Tooltip
+                        {...tooltipProps}
+                        cursor={{ fill: cursorFill }}
+                        formatter={(v: any) => fBRL(Number(v))}
+                      />
                       <Bar dataKey="gasto" name="Gasto" fill="url(#barBlue)" />
                     </BarChart>
                   </ResponsiveContainer>
@@ -659,7 +663,11 @@ export default function RefuelingPage() {
                         tick={{ fill: axisColor }}
                       />
                       <YAxis stroke={axisColor} tick={{ fill: axisColor }} />
-                      <Tooltip formatter={(v: any) => `${fBRL(Number(v))}/L`} />
+                      <Tooltip
+                        {...tooltipProps}
+                        cursor={{ fill: cursorFill }}
+                        formatter={(v: any) => `${fBRL(Number(v))}/L`}
+                      />
                       <Area
                         type="monotone"
                         dataKey="preco"
@@ -688,6 +696,8 @@ export default function RefuelingPage() {
                       />
                       <YAxis stroke={axisColor} tick={{ fill: axisColor }} />
                       <Tooltip
+                        {...tooltipProps}
+                        cursor={{ fill: cursorFill }}
                         formatter={(v: any, n: any) =>
                           n === "gasto"
                             ? fBRL(Number(v))
@@ -720,6 +730,8 @@ export default function RefuelingPage() {
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Tooltip
+                        {...tooltipProps}
+                        cursor={{ fill: cursorFill }}
                         formatter={(v: any) => `${fLitros(Number(v))} L`}
                       />
                       <Legend />

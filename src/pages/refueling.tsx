@@ -12,8 +12,6 @@ import {
   Legend,
   BarChart,
   Bar,
-  LineChart,
-  Line,
   AreaChart,
   Area,
   PieChart,
@@ -62,7 +60,7 @@ type Abastecimento = {
   observacoes?: string;
 };
 
-// ===== helpers de formatação/máscara =====
+// ===== helpers =====
 const fBRL = (n: number) =>
   n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const fLitros = (n: number) =>
@@ -112,14 +110,13 @@ const schema = z.object({
   observacoes: z.string().optional().default(""),
 });
 
-// ===== stepper custom dentro do input (substitui as setinhas nativas) =====
+// ===== input com stepper custom =====
 function InputWithStepper(props: {
   value: string;
   onChange: (v: string) => void;
   step?: number;
   placeholder?: string;
   className?: string;
-  // dica: use sempre type="text" para permitir máscara
 }) {
   const { value, onChange, step = 1, placeholder, className } = props;
   const inc = (sinal: 1 | -1) => {
@@ -166,11 +163,44 @@ function InputWithStepper(props: {
 export default function RefuelingPage() {
   const { theme } = useTheme();
 
+  // tema
   const isDarkMode = theme === "dark";
   const axisColor = isDarkMode ? "#d1d5db" : "#374151";
   const gridColor = isDarkMode ? "#4b5563" : "#e5e7eb";
   const barColor = isDarkMode ? "#60a5fa" : "#2563eb";
-  // ===== 1) MOCKS para gráficos e lista =====
+  const COLORS = {
+    azul: barColor,
+    vermelho: "#ef4444",
+    verde: "#22c55e",
+    laranja: "#f59e0b",
+    azulEscuro: "#1e3a8a",
+    cinza: "#9ca3af",
+  };
+  const FUEL_COLORS: Record<string, string> = {
+    Gasolina: COLORS.laranja,
+    Etanol: COLORS.verde,
+    Diesel: COLORS.azulEscuro,
+    GNV: "#06b6d4",
+    Flex: "#a855f7",
+  };
+
+  const tooltipProps = {
+    contentStyle: {
+      background: "transparent",
+      border: "none",
+      boxShadow: "none",
+      padding: "8px 10px",
+    } as React.CSSProperties,
+    labelStyle: { color: axisColor } as React.CSSProperties,
+    itemStyle: { color: axisColor } as React.CSSProperties,
+    wrapperStyle: { outline: "none" } as React.CSSProperties,
+  };
+
+  const cursorFill = isDarkMode
+    ? "rgba(148,163,184,0.08)"
+    : "rgba(2,6,23,0.06)";
+
+  // ===== mocks =====
   const [items, setItems] = useState<Abastecimento[]>([
     {
       id: crypto.randomUUID(),
@@ -211,7 +241,7 @@ export default function RefuelingPage() {
     },
   ]);
 
-  // ===== 2) formulário com máscara em todos os campos numéricos =====
+  // ===== form com máscaras =====
   const [form, setForm] = useState({
     odometroMask: fKm(33800),
     precoLitroMask: fBRL(5.79),
@@ -225,7 +255,7 @@ export default function RefuelingPage() {
     observacoes: "",
   });
 
-  // ===== 3) KPIs e dados de gráficos =====
+  // ===== KPIs =====
   const kpis = useMemo(() => {
     if (!items.length)
       return {
@@ -242,7 +272,6 @@ export default function RefuelingPage() {
     const totalLitros = items.reduce((a, b) => a + b.litros, 0);
     const mediaPrecoLitro = totalLitros ? totalGasto / totalLitros : 0;
 
-    // consumo médio em ciclos de tanque cheio
     let kmAc = 0,
       lAc = 0;
     const cons: number[] = [];
@@ -273,6 +302,7 @@ export default function RefuelingPage() {
     };
   }, [items]);
 
+  // ===== dados dos charts =====
   const chartData = useMemo(() => {
     const byDate = [...items]
       .sort(
@@ -312,94 +342,10 @@ export default function RefuelingPage() {
     return { byDate, byMonth, byFuel };
   }, [items]);
 
-  const charts = [
-    {
-      key: "gasto",
-      title: "Gasto por abastecimento",
-      render: () => (
-        <ResponsiveContainer width="100%" height={360}>
-          <BarChart data={chartData.byDate} margin={{ left: 8, right: 8 }}>
-            <CartesianGrid stroke={gridColor} />
-            <XAxis dataKey="data" stroke={axisColor} />
-            <YAxis stroke={axisColor} />
-            <Tooltip formatter={(v: any) => fBRL(Number(v))} />
-            <Bar dataKey="gasto" name="Gasto" fill={barColor} />
-          </BarChart>
-        </ResponsiveContainer>
-      ),
-    },
-    {
-      key: "preco",
-      title: "Preço por litro ao longo do tempo",
-      render: () => (
-        <ResponsiveContainer width="100%" height={360}>
-          <LineChart data={chartData.byDate} margin={{ left: 8, right: 8 }}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="data" />
-            <YAxis />
-            <Tooltip formatter={(v: any) => `${fBRL(Number(v))}/L`} />
-            <Line type="monotone" dataKey="preco" name="Preço/L" dot />
-          </LineChart>
-        </ResponsiveContainer>
-      ),
-    },
-    {
-      key: "mensal",
-      title: "Gasto e litros por mês",
-      render: () => (
-        <ResponsiveContainer width="100%" height={360}>
-          <AreaChart data={chartData.byMonth} margin={{ left: 8, right: 8 }}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="mes" />
-            <YAxis />
-            <Tooltip
-              formatter={(v: any, n: any) =>
-                n === "gasto" ? fBRL(Number(v)) : `${fLitros(Number(v))} L`
-              }
-            />
-            <Legend />
-            <Area
-              type="monotone"
-              dataKey="gasto"
-              name="Gasto"
-              fillOpacity={0.3}
-            />
-            <Area
-              type="monotone"
-              dataKey="litros"
-              name="Litros"
-              fillOpacity={0.3}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-      ),
-    },
-    {
-      key: "mix",
-      title: "Mix de combustível (litros)",
-      render: () => (
-        <ResponsiveContainer width="100%" height={360}>
-          <PieChart>
-            <Tooltip formatter={(v: any) => `${fLitros(Number(v))} L`} />
-            <Legend />
-            <Pie
-              data={chartData.byFuel}
-              dataKey="litros"
-              nameKey="tipo"
-              outerRadius={140}
-              label
-            />
-            {chartData.byFuel.map((_, i) => (
-              <Cell key={i} />
-            ))}
-          </PieChart>
-        </ResponsiveContainer>
-      ),
-    },
-  ];
+  // ===== carrossel =====
   const [idx, setIdx] = useState(0);
 
-  // ===== submit com zod (transforma máscara -> número) =====
+  // ===== submit =====
   function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     const parsed = schema.parse(form);
@@ -442,7 +388,6 @@ export default function RefuelingPage() {
             <DialogHeader>
               <DialogTitle>Novo abastecimento</DialogTitle>
             </DialogHeader>
-
             <form onSubmit={onSubmit} className="grid grid-cols-12 gap-4">
               <div className="col-span-12 sm:col-span-4">
                 <Label>Odômetro</Label>
@@ -461,7 +406,6 @@ export default function RefuelingPage() {
                   placeholder="000.000 km"
                 />
               </div>
-
               <div className="col-span-12 sm:col-span-4">
                 <Label>Preço do litro (R$/L)</Label>
                 <InputWithStepper
@@ -473,7 +417,6 @@ export default function RefuelingPage() {
                   placeholder="R$ 0,00"
                 />
               </div>
-
               <div className="col-span-12 sm:col-span-4">
                 <Label>Tipo de combustível</Label>
                 <Select
@@ -506,7 +449,6 @@ export default function RefuelingPage() {
                   placeholder="R$ 0,00"
                 />
               </div>
-
               <div className="col-span-12 sm:col-span-4">
                 <Label>Litros (L)</Label>
                 <InputWithStepper
@@ -518,7 +460,6 @@ export default function RefuelingPage() {
                   placeholder="0,00"
                 />
               </div>
-
               <div className="col-span-12 sm:col-span-4">
                 <Label>Posto</Label>
                 <Input
@@ -527,7 +468,6 @@ export default function RefuelingPage() {
                   className="focus-visible:ring-1 focus-visible:ring-muted-foreground/30"
                 />
               </div>
-
               <div className="col-span-12 sm:col-span-6">
                 <Label>Motorista</Label>
                 <Input
@@ -538,7 +478,6 @@ export default function RefuelingPage() {
                   className="focus-visible:ring-1 focus-visible:ring-muted-foreground/30"
                 />
               </div>
-
               <div className="col-span-12 sm:col-span-6">
                 <Label>Data e hora</Label>
                 <Input
@@ -550,7 +489,6 @@ export default function RefuelingPage() {
                   className="focus-visible:ring-1 focus-visible:ring-muted-foreground/30"
                 />
               </div>
-
               <div className="col-span-12 flex items-center gap-3">
                 <Switch
                   checked={form.tanqueCompleto}
@@ -560,7 +498,6 @@ export default function RefuelingPage() {
                 />
                 <Label>Tanque completo</Label>
               </div>
-
               <div className="col-span-12">
                 <Label>Observações</Label>
                 <Textarea
@@ -571,7 +508,6 @@ export default function RefuelingPage() {
                   className="focus-visible:ring-1 focus-visible:ring-muted-foreground/30"
                 />
               </div>
-
               <div className="col-span-12 mt-2 flex justify-end gap-2">
                 <Button variant="outline" type="button">
                   Cancelar
@@ -583,7 +519,7 @@ export default function RefuelingPage() {
         </Dialog>
       </div>
 
-      {/* layout 3 colunas seguindo os retângulos */}
+      {/* layout 3 colunas */}
       <div className="grid grid-cols-12 gap-6">
         {/* esquerda – últimos abastecimentos */}
         <div className="col-span-12 xl:col-span-3">
@@ -616,7 +552,7 @@ export default function RefuelingPage() {
           </Card>
         </div>
 
-        {/* centro – “galeria circular” de gráficos */}
+        {/* centro – carrossel de gráficos */}
         <div className="col-span-12 xl:col-span-6">
           <Card className="h-[520px]">
             <CardHeader className="flex-row items-center justify-between">
@@ -649,39 +585,108 @@ export default function RefuelingPage() {
             </CardHeader>
             <CardContent className="h-[420px]">
               <div className="h-full w-full">
+                {/* 0) Gasto por abastecimento – barras azuis */}
                 {idx === 0 && (
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={chartData.byDate}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="data" />
-                      <YAxis />
+                    <BarChart
+                      data={chartData.byDate}
+                      margin={{ left: 8, right: 8 }}
+                    >
+                      <defs>
+                        <linearGradient
+                          id="barBlue"
+                          x1="0"
+                          y1="0"
+                          x2="0"
+                          y2="1"
+                        >
+                          <stop
+                            offset="0%"
+                            stopColor={COLORS.azul}
+                            stopOpacity={0.95}
+                          />
+                          <stop
+                            offset="100%"
+                            stopColor={COLORS.azul}
+                            stopOpacity={0.45}
+                          />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+                      <XAxis
+                        dataKey="data"
+                        stroke={axisColor}
+                        tick={{ fill: axisColor }}
+                      />
+                      <YAxis stroke={axisColor} tick={{ fill: axisColor }} />
                       <Tooltip formatter={(v: any) => fBRL(Number(v))} />
-                      <Bar dataKey="gasto" name="Gasto" />
+                      <Bar dataKey="gasto" name="Gasto" fill="url(#barBlue)" />
                     </BarChart>
                   </ResponsiveContainer>
                 )}
+
+                {/* 1) Preço por litro – AreaChart preenchido */}
                 {idx === 1 && (
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={chartData.byDate}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="data" />
-                      <YAxis />
+                    <AreaChart
+                      data={chartData.byDate}
+                      margin={{ left: 8, right: 8 }}
+                    >
+                      <defs>
+                        <linearGradient
+                          id="priceFill"
+                          x1="0"
+                          y1="0"
+                          x2="0"
+                          y2="1"
+                        >
+                          <stop
+                            offset="0%"
+                            stopColor={COLORS.azul}
+                            stopOpacity={0.35}
+                          />
+                          <stop
+                            offset="100%"
+                            stopColor={COLORS.azul}
+                            stopOpacity={0.06}
+                          />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+                      <XAxis
+                        dataKey="data"
+                        stroke={axisColor}
+                        tick={{ fill: axisColor }}
+                      />
+                      <YAxis stroke={axisColor} tick={{ fill: axisColor }} />
                       <Tooltip formatter={(v: any) => `${fBRL(Number(v))}/L`} />
-                      <Line
+                      <Area
                         type="monotone"
                         dataKey="preco"
                         name="Preço/L"
-                        dot
+                        stroke={COLORS.azul}
+                        fill="url(#priceFill)"
+                        dot={{ r: 3, stroke: COLORS.azul, strokeWidth: 1 }}
+                        activeDot={{ r: 5 }}
                       />
-                    </LineChart>
+                    </AreaChart>
                   </ResponsiveContainer>
                 )}
+
+                {/* 2) Gasto e litros por mês – gasto vermelho, litros azul */}
                 {idx === 2 && (
                   <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={chartData.byMonth}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="mes" />
-                      <YAxis />
+                    <AreaChart
+                      data={chartData.byMonth}
+                      margin={{ left: 8, right: 8 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+                      <XAxis
+                        dataKey="mes"
+                        stroke={axisColor}
+                        tick={{ fill: axisColor }}
+                      />
+                      <YAxis stroke={axisColor} tick={{ fill: axisColor }} />
                       <Tooltip
                         formatter={(v: any, n: any) =>
                           n === "gasto"
@@ -694,17 +699,23 @@ export default function RefuelingPage() {
                         type="monotone"
                         dataKey="gasto"
                         name="Gasto"
-                        fillOpacity={0.3}
+                        stroke={COLORS.vermelho}
+                        fill={COLORS.vermelho}
+                        fillOpacity={0.25}
                       />
                       <Area
                         type="monotone"
                         dataKey="litros"
                         name="Litros"
-                        fillOpacity={0.3}
+                        stroke={COLORS.azul}
+                        fill={COLORS.azul}
+                        fillOpacity={0.18}
                       />
                     </AreaChart>
                   </ResponsiveContainer>
                 )}
+
+                {/* 3) Mix – cores por combustível */}
                 {idx === 3 && (
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
@@ -718,10 +729,15 @@ export default function RefuelingPage() {
                         nameKey="tipo"
                         outerRadius={140}
                         label
-                      />
-                      {chartData.byFuel.map((_, i) => (
-                        <Cell key={i} />
-                      ))}
+                      >
+                        {chartData.byFuel.map((d, i) => (
+                          <Cell
+                            key={i}
+                            fill={FUEL_COLORS[d.tipo] ?? COLORS.cinza}
+                            stroke={isDarkMode ? "#111827" : "#ffffff"}
+                          />
+                        ))}
+                      </Pie>
                     </PieChart>
                   </ResponsiveContainer>
                 )}

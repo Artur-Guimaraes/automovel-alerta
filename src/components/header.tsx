@@ -1,10 +1,60 @@
+import { useEffect, useState } from "react";
 import { Car, CarFront, HomeIcon, Wrench, Fuel, Receipt } from "lucide-react";
 import { Separator } from "./ui/separator";
 import { ThemeToggle } from "./theme/theme-toggle";
 import { AccountMenu } from "./account-menu";
 import { NavLink } from "react-router";
 
+// Supabase
+import { supabase } from "@/supabaseClient";
+import type { Session, User } from "@supabase/supabase-js";
+
+function getDisplayName(u?: User | null) {
+  const meta = u?.user_metadata ?? {};
+  return (
+    meta.full_name ||
+    meta.name ||
+    meta.user_name ||
+    u?.email?.split("@")[0] ||
+    "Usuário"
+  );
+}
+
+function getAvatarUrl(u?: User | null) {
+  const meta = u?.user_metadata ?? {};
+  return meta.avatar_url || meta.picture || "";
+}
+
 export function Header() {
+  //States de Auth -> supabase
+  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    // pega sessão atual (se já tem login feito)
+    supabase.auth.getSession().then(({ data }) => {
+      if (!mounted) return;
+      setSession(data.session ?? null);
+      setUser(data.session?.user ?? null);
+    });
+
+    // ouve mudanças de auth (login/logout/refresh)
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      (_event, newSession) => {
+        if (!mounted) return;
+        setSession(newSession);
+        setUser(newSession?.user ?? null);
+      }
+    );
+
+    return () => {
+      mounted = false;
+      listener.subscription.unsubscribe();
+    };
+  }, []);
+
   return (
     <div className="border-b">
       <div className="flex h-20 items-center px-6">
@@ -55,9 +105,13 @@ export function Header() {
           </nav>
         </div>
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-3">
           <ThemeToggle />
-          <AccountMenu />
+          <AccountMenu
+            displayName={getDisplayName(user)}
+            email={user?.email ?? ""}
+            avatarUrl={getAvatarUrl(user)}
+          />
         </div>
       </div>
     </div>

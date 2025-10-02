@@ -1,5 +1,22 @@
 import axios from "axios";
+import { supabase } from "@/supabaseClient";
 
-export const api = axios.create({
-  baseURL: "http://localhost:3001",
+const baseURL = import.meta.env.VITE_API_URL ?? "http://localhost:3333";
+export const api = axios.create({ baseURL });
+
+api.interceptors.request.use(async (config) => {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  // DEBUG: ver no console se está pegando token
+  console.log("[api] header Authorization presente?", Boolean(token));
+  if (token) {
+    config.headers = config.headers ?? {};
+    (config.headers as any).Authorization = `Bearer ${token}`;
+  }
+  return config;
 });
+
+// 👇 expõe no console do navegador (apenas em dev)
+if (import.meta.env.DEV) (window as any).api = api;

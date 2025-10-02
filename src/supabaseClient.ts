@@ -16,5 +16,6 @@ export const supabase: SupabaseClient = createClient(
     },
   }
 );
+if (import.meta.env.DEV) (window as any).supabase = supabase;
 
 export type { Session, User, AuthChangeEvent } from "@supabase/supabase-js";

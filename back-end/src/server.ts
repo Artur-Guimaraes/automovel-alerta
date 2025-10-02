@@ -1,0 +1,234 @@
+import "dotenv/config";
+import express from "express";
+import cors from "cors";
+import { db, schema } from "./db";
+import { eq, and } from "drizzle-orm";
+import { requireAuth } from "./auth";
+
+const app = express();
+
+// libere o front do Vite (ajuste a porta se a sua for outra)
+app.use(cors({ origin: ["http://localhost:5173", "http://127.0.0.1:5173"] }));
+app.use(express.json());
+
+// health check
+app.get("/", (_, res) => res.json({ up: true }));
+app.get("/health", (_, res) => res.json({ ok: true }));
+
+// exige token apenas em /api/*
+app.use("/api", requireAuth);
+app.get("/api/me", (req, res) => {
+  res.json({ userId: (req as any).userId });
+});
+
+/** -------- VEÍCULOS -------- */
+app.get("/api/vehicles", async (req, res) => {
+  const ownerId = (req as any).userId as string;
+  const rows = await db
+    .select()
+    .from(schema.vehicles)
+    .where(eq(schema.vehicles.ownerId, ownerId));
+  res.json(rows);
+});
+
+app.post("/api/vehicles", async (req, res) => {
+  const ownerId = (req as any).userId as string;
+  const { name, model, plate, mileage = 0 } = req.body || {};
+  if (!name) return res.status(400).json({ error: "name is required" });
+
+  const inserted = await db
+    .insert(schema.vehicles)
+    .values({ ownerId, name, model, plate, mileage: Number(mileage) || 0 })
+    .returning();
+  res.status(201).json(inserted[0]);
+});
+
+app.delete("/api/vehicles/:id", async (req, res) => {
+  const ownerId = (req as any).userId as string;
+  const id = Number(req.params.id);
+  await db
+    .delete(schema.vehicles)
+    .where(
+      and(eq(schema.vehicles.id, id), eq(schema.vehicles.ownerId, ownerId))
+    );
+  res.status(204).end();
+});
+
+/** -------- ABASTECIMENTOS -------- */
+app.get("/api/refuelings/:vehicleId", async (req, res) => {
+  const ownerId = (req as any).userId as string;
+  const vehicleId = Number(req.params.vehicleId);
+  const rows = await db
+    .select()
+    .from(schema.refuelings)
+    .where(
+      and(
+        eq(schema.refuelings.ownerId, ownerId),
+        eq(schema.refuelings.vehicleId, vehicleId)
+      )
+    );
+  res.json(rows);
+});
+
+app.post("/api/refuelings", async (req, res) => {
+  const ownerId = (req as any).userId as string;
+  const { vehicleId, liters, pricePerLiter, date } = req.body || {};
+  if (!vehicleId || !liters || !pricePerLiter || !date) {
+    return res.status(400).json({
+      error: "vehicleId, liters, pricePerLiter e date são obrigatórios",
+    });
+  }
+  const total = Number(liters) * Number(pricePerLiter);
+  const row = await db
+    .insert(schema.refuelings)
+    .values({
+      ownerId,
+      vehicleId: Number(vehicleId),
+      liters: Number(liters),
+      pricePerLiter: Number(pricePerLiter),
+      total,
+      date: Math.floor(new Date(date).getTime() / 1000),
+    })
+    .returning();
+  res.status(201).json(row[0]);
+});
+
+/** -------- MANUTENÇÕES -------- */
+app.get("/api/maintenances/:vehicleId", async (req, res) => {
+  const ownerId = (req as any).userId as string;
+  const vehicleId = Number(req.params.vehicleId);
+  const rows = await db
+    .select()
+    .from(schema.maintenances)
+    .where(
+      and(
+        eq(schema.maintenances.ownerId, ownerId),
+        eq(schema.maintenances.vehicleId, vehicleId)
+      )
+    );
+  res.json(rows);
+});
+
+app.post("/api/maintenances", async (req, res) => {
+  const ownerId = (req as any).userId as string;
+  const { vehicleId, title, cost, date, notes } = req.body || {};
+  if (!vehicleId || !title || !cost || !date) {
+    return res
+      .status(400)
+      .json({ error: "vehicleId, title, cost e date são obrigatórios" });
+  }
+  const row = await db
+    .insert(schema.maintenances)
+    .values({
+      ownerId,
+      vehicleId: Number(vehicleId),
+      title: String(title),
+      cost: Number(cost),
+      date: Math.floor(new Date(date).getTime() / 1000),
+      notes: notes ? String(notes) : null,
+    })
+    .returning();
+  res.status(201).json(row[0]);
+});
+
+/** -------- OUTROS GASTOS -------- */
+app.get("/api/expenses/:vehicleId", async (req, res) => {
+  const ownerId = (req as any).userId as string;
+  const vehicleId = Number(req.params.vehicleId);
+  const rows = await db
+    .select()
+    .from(schema.expenses)
+    .where(
+      and(
+        eq(schema.expenses.ownerId, ownerId),
+        eq(schema.expenses.vehicleId, vehicleId)
+      )
+    );
+  res.json(rows);
+});
+
+app.post("/api/expenses", async (req, res) => {
+  const ownerId = (req as any).userId as string;
+  const {
+    vehicleId,
+    title,
+    cost,
+    date,
+    isRecurringMonthly = false,
+  } = req.body || {};
+  if (!vehicleId || !title || !cost || !date) {
+    return res
+      .status(400)
+      .json({ error: "vehicleId, title, cost e date são obrigatórios" });
+  }
+  const row = await db
+    .insert(schema.expenses)
+    .values({
+      ownerId,
+      vehicleId: Number(vehicleId),
+      title: String(title),
+      cost: Number(cost),
+      date: Math.floor(new Date(date).getTime() / 1000),
+      isRecurringMonthly: !!isRecurringMonthly,
+    })
+    .returning();
+  res.status(201).json(row[0]);
+});
+
+/** -------- RESUMO DE GASTOS (mês/dia/ano) -------- */
+app.get("/api/costs/summary", async (req, res) => {
+  const ownerId = (req as any).userId as string;
+  const { vehicleId, period = "month" } = req.query as {
+    vehicleId?: string;
+    period?: string;
+  };
+
+  const byVehicle = vehicleId ? Number(vehicleId) : undefined;
+
+  const [refuels, maints, exps] = await Promise.all([
+    db
+      .select()
+      .from(schema.refuelings)
+      .where(eq(schema.refuelings.ownerId, ownerId)),
+    db
+      .select()
+      .from(schema.maintenances)
+      .where(eq(schema.maintenances.ownerId, ownerId)),
+    db
+      .select()
+      .from(schema.expenses)
+      .where(eq(schema.expenses.ownerId, ownerId)),
+  ]);
+
+  const map = new Map<string, number>();
+  const key = (ts: number) => {
+    const d = new Date(ts * 1000);
+    if (period === "day")
+      return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+    if (period === "year") return `${d.getFullYear()}`;
+    return `${d.getFullYear()}-${d.getMonth() + 1}`; // month
+  };
+  const add = (ts: number, val: number) => {
+    const k = key(ts);
+    map.set(k, (map.get(k) || 0) + val);
+  };
+
+  refuels
+    .filter((r) => !byVehicle || r.vehicleId === byVehicle)
+    .forEach((r) => add(r.date, r.total));
+  maints
+    .filter((m) => !byVehicle || m.vehicleId === byVehicle)
+    .forEach((m) => add(m.date, m.cost));
+  exps
+    .filter((e) => !byVehicle || e.vehicleId === byVehicle)
+    .forEach((e) => add(e.date, e.cost));
+
+  const summary = [...map.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([periodKey, total]) => ({ period: periodKey, total }));
+
+  res.json({ period, vehicleId: byVehicle ?? null, summary });
+});
+
+const port = Number(process.env.PORT || 3333);
+app.listen(port, () => console.log(`API up on http://localhost:${port}`));

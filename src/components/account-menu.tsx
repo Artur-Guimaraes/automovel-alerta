@@ -51,7 +51,7 @@ export function AccountMenu({
           </Button>
         </DropdownMenuTrigger>
 
-        <DropdownMenuContent align="end" className="w-64">
+        <DropdownMenuContent align="end" className="w-80">
           <DropdownMenuLabel className="flex items-center gap-3">
             <Avatar className="h-8 w-8">
               <AvatarImage src={avatarUrl} alt={shownName} />
@@ -69,12 +69,12 @@ export function AccountMenu({
 
           <DropdownMenuSeparator />
 
-          <DialogTrigger asChild>
+          {/* <DialogTrigger asChild>
             <DropdownMenuItem>
               <Building className="mr-2 h-4 w-4" />
               <span>Perfil</span>
             </DropdownMenuItem>
-          </DialogTrigger>
+          </DialogTrigger> */}
 
           <DropdownMenuItem
             asChild

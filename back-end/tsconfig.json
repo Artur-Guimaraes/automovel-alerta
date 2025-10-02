@@ -42,6 +42,7 @@
   },
   "include": [
     "src",
-    "drizzle.config.ts"
+    "drizzle.config.ts",
+    "../src/services"
   ]
 }

@@ -7,6 +7,23 @@ import { requireAuth } from "./auth";
 
 const app = express();
 
+// helper no topo do arquivo (abaixo dos imports)
+const toNumberBR = (v: any) => {
+  if (typeof v === "number") return v;
+  if (typeof v === "string") return Number(v.replace(",", "."));
+  return Number(v);
+};
+
+// Converte "YYYY-MM-DD" (ou Date) para epoch (segundos) SEM deslocar 1 dia
+const toEpochLocal = (v: string | Date) => {
+  if (v instanceof Date) return Math.floor(v.getTime() / 1000);
+  if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v)) {
+    const [y, m, d] = v.split("-").map(Number);
+    return Math.floor(new Date(y, m - 1, d).getTime() / 1000);
+  }
+  return Math.floor(new Date(v as any).getTime() / 1000);
+};
+
 // libere o front do Vite (ajuste a porta se a sua for outra)
 app.use(cors({ origin: ["http://localhost:5173", "http://127.0.0.1:5173"] }));
 app.use(express.json());
@@ -72,25 +89,46 @@ app.get("/api/refuelings/:vehicleId", async (req, res) => {
 
 app.post("/api/refuelings", async (req, res) => {
   const ownerId = (req as any).userId as string;
-  const { vehicleId, liters, pricePerLiter, date } = req.body || {};
-  if (!vehicleId || !liters || !pricePerLiter || !date) {
+  const { vehicleId, liters, pricePerLiter, date, fuelType } = req.body || {};
+
+  const l = toNumberBR(liters);
+  const ppl = toNumberBR(pricePerLiter);
+  const ft = String(fuelType || "gasolina");
+
+  if (!vehicleId || !date || isNaN(l) || isNaN(ppl)) {
     return res.status(400).json({
       error: "vehicleId, liters, pricePerLiter e date são obrigatórios",
     });
   }
-  const total = Number(liters) * Number(pricePerLiter);
+
+  const total = l * ppl;
+  const epoch = toEpochLocal(date);
+
   const row = await db
     .insert(schema.refuelings)
     .values({
       ownerId,
       vehicleId: Number(vehicleId),
-      liters: Number(liters),
-      pricePerLiter: Number(pricePerLiter),
+      liters: l,
+      pricePerLiter: ppl,
       total,
-      date: Math.floor(new Date(date).getTime() / 1000),
+      date: epoch,
+      fuelType: ft,
     })
     .returning();
+
   res.status(201).json(row[0]);
+});
+
+app.delete("/api/refuelings/:id", async (req, res) => {
+  const ownerId = (req as any).userId as string;
+  const id = Number(req.params.id);
+  await db
+    .delete(schema.refuelings)
+    .where(
+      and(eq(schema.refuelings.id, id), eq(schema.refuelings.ownerId, ownerId))
+    );
+  res.status(204).end();
 });
 
 /** -------- MANUTENÇÕES -------- */

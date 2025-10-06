@@ -1,0 +1,1 @@
+ALTER TABLE `refuelings` ADD `fuel_type` text DEFAULT 'gasolina' NOT NULL;

@@ -1,6 +1,7 @@
 import { api } from "@/lib/api";
 
 export type CostsSummary = { period: string; total: number };
+
 export async function getCostsSummary(params: {
   period?: "day" | "month" | "year";
   vehicleId?: number;

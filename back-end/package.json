@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "drizzle:gen": "drizzle-kit generate --config=drizzle.config.cjs",
-    "drizzle:migrate": "ts-node --esm src/migrate.ts"
+    "drizzle:migrate": "tsx src/migrate.ts"
   },
   "keywords": [],
   "author": "",

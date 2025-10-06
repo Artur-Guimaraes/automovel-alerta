@@ -8,6 +8,13 @@
       "when": 1759350010100,
       "tag": "0000_far_tarot",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1759750305911,
+      "tag": "0001_gigantic_karen_page",
+      "breakpoints": true
     }
   ]
 }

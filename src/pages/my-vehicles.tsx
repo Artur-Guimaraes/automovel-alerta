@@ -168,7 +168,7 @@ export function MyVehicles() {
                     <p className="text-red-500">{errorMessage}</p>
                   )}
                   <div>
-                    <label className="text-gray-600">Nome do carro:</label>
+                    <label className="text-gray-300">Nome do carro:</label>
                     <Input
                       className="mt-1"
                       type="text"
@@ -182,7 +182,7 @@ export function MyVehicles() {
                     />
                   </div>
                   <div>
-                    <label className="text-gray-600">Marca:</label>
+                    <label className="text-gray-300">Marca:</label>
                     <Input
                       className="mt-1"
                       type="text"
@@ -196,7 +196,7 @@ export function MyVehicles() {
                     />
                   </div>
                   <div>
-                    <label className="text-gray-600">Modelo:</label>
+                    <label className="text-gray-300">Modelo:</label>
                     <Input
                       className="mt-1"
                       type="text"
@@ -210,7 +210,7 @@ export function MyVehicles() {
                     />
                   </div>
                   <div>
-                    <label className="text-gray-600">Placa:</label>
+                    <label className="text-gray-300">Placa:</label>
                     <Input
                       className="mt-1"
                       type="text"
@@ -224,7 +224,7 @@ export function MyVehicles() {
                     />
                   </div>
                   <div>
-                    <label className="text-gray-600">Quilometragem:</label>
+                    <label className="text-gray-300">Quilometragem:</label>
                     <Input
                       className="mt-1"
                       type="text"
@@ -301,7 +301,7 @@ export function MyVehicles() {
                           </AlertDialogTitle>
                           <AlertDialogDescription className="space-y-2">
                             <div>
-                              <label className="text-gray-600">
+                              <label className="text-gray-300">
                                 Nome do carro:
                               </label>
                               <Input
@@ -317,7 +317,7 @@ export function MyVehicles() {
                               />
                             </div>
                             <div>
-                              <label className="text-gray-600">
+                              <label className="text-gray-300">
                                 Marca e Modelo:
                               </label>
                               <Input
@@ -333,7 +333,7 @@ export function MyVehicles() {
                               />
                             </div>
                             <div>
-                              <label className="text-gray-600">Placa:</label>
+                              <label className="text-gray-300">Placa:</label>
                               <Input
                                 className="mt-1"
                                 type="text"
@@ -347,7 +347,7 @@ export function MyVehicles() {
                               />
                             </div>
                             <div>
-                              <label className="text-gray-600">
+                              <label className="text-gray-300">
                                 Quilometragem:
                               </label>
                               <Input

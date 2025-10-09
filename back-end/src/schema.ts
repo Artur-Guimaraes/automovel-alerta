@@ -39,6 +39,7 @@ export const maintenances = sqliteTable("maintenances", {
   cost: real("cost").notNull(),
   date: integer("date", { mode: "number" }).notNull(),
   notes: text("notes"),
+  mileage: real("mileage").default(0),
 });
 
 export const expenses = sqliteTable("expenses", {

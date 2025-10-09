@@ -14,146 +14,176 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Plus } from "lucide-react";
-import { api } from "../lib/api";
-
 import { z } from "zod";
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+import {
+  listVehicles,
+  createVehicle,
+  updateVehicle,
+  deleteVehicle,
+  type Vehicle as VehicleRow,
+  type VehicleInput,
+} from "@/services/vehicle.service";
+
+/* ------------------------ helpers de formatação ------------------------ */
+const onlyDigits = (s: string) => s.replace(/\D/g, "");
+const formatKm = (n?: number) =>
+  n === undefined || n === null
+    ? ""
+    : `${Math.max(0, Math.floor(n)).toLocaleString("pt-BR")} km`;
+const maskKmInput = (raw: string) => {
+  const digits = onlyDigits(raw);
+  const num = digits ? parseInt(digits, 10) : 0;
+  return { num, text: formatKm(num) };
+};
+const km = (n: number) => `${n.toLocaleString("pt-BR")} km`;
+
+/* ------------------------------ Zod schema ----------------------------- */
 const vehicleSchema = z.object({
-  id: z.number(),
+  id: z.number().optional(),
   name: z
     .string()
+    .min(1, "Informe um nome")
     .max(30, "Nome deve ter no máximo 30 caracteres")
     .regex(/^[a-zA-Z0-9\s]+$/, "Nome não pode conter caracteres especiais"),
-  brand: z
-    .string()
-    .max(30, "Marca deve ter no máximo 30 caracteres")
-    .regex(/^[a-zA-Z0-9\s]+$/, "Marca não pode conter caracteres especiais"),
   model: z
     .string()
+    .min(1, "Informe o modelo")
     .max(30, "Modelo deve ter no máximo 30 caracteres")
     .regex(/^[a-zA-Z0-9\s]+$/, "Modelo não pode conter caracteres especiais"),
   plate: z
     .string()
-    .regex(/^[A-Z]{3}-\d{4}$|^[A-Z]{3}\d[A-Z]\d{2}$/, "Placa inválida"),
-  mileage: z
-    .string()
-    .regex(
-      /^\d{1,9} km$/,
-      "Quilometragem deve estar no formato correto (ex: 32000 km)"
+    .transform((v) => v.toUpperCase().replace("-", ""))
+    .refine(
+      (v) =>
+        /^[A-Z]{3}\d{4}$/.test(v) || // AAA1234
+        /^[A-Z]{3}\d[A-Z]\d{2}$/.test(v), // AAA1A23
+      "Placa inválida"
     ),
+  mileage: z.preprocess(
+    (v) => Number(String(v).replace(/[^\d.-]/g, "")),
+    z.number().nonnegative("Quilometragem deve ser um número válido")
+  ),
 });
 
-type VehicleSchema = z.infer<typeof vehicleSchema>;
+type VehicleForm = z.infer<typeof vehicleSchema>;
 
 export function MyVehicles() {
-  const [vehicles, setVehicles] = useState<VehicleSchema[]>([]);
-  const [editingVehicle, setEditingVehicle] = useState<VehicleSchema | null>(
+  const [vehicles, setVehicles] = useState<VehicleRow[]>([]);
+  const [editingVehicle, setEditingVehicle] = useState<VehicleForm | null>(
     null
   );
-  const [deletingVehicle, setDeletingVehicle] = useState<VehicleSchema | null>(
+  const [deletingVehicle, setDeletingVehicle] = useState<VehicleRow | null>(
     null
   );
-  const [addingVehicle, setAddingVehicle] = useState<VehicleSchema | null>(
-    null
-  );
+  const [addingVehicle, setAddingVehicle] = useState<VehicleForm | null>(null);
+
+  // estados visuais para a máscara de km
+  const [addingMileageText, setAddingMileageText] = useState<string>("");
+  const [editingMileageText, setEditingMileageText] = useState<string>("");
+
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // useEffect(() => {
-
-  //   setVehicles([
-  //     {
-  //       id: 1,
-  //       name: "Meu Peugeot",
-  //       brand: "Peugeot",
-  //       model: "208 Style 2024",
-  //       plate: "ABC-1234",
-  //       mileage: "32.500 km",
-  //     },
-  //     {
-  //       id: 2,
-  //       name: "SUV Família",
-  //       brand: "Jeep",
-  //       model: "Compass 2023",
-  //       plate: "XYZ-9876",
-  //       mileage: "45.200 km",
-  //     },
-  //   ]);
-  // }, []);
+  /* -------------------------- carregar da API -------------------------- */
+  async function reloadVehicles() {
+    const data = await listVehicles();
+    setVehicles(data);
+  }
 
   useEffect(() => {
-    async function loadVehicles() {
-      try {
-        const response = await api.get("vehicles");
-        setVehicles(response.data);
-      } catch (error) {
-        console.error("Failed to fetch vehicles: ", error);
-      }
-    }
-
-    loadVehicles();
+    reloadVehicles().catch((e) =>
+      console.error("Failed to fetch vehicles:", e)
+    );
   }, []);
 
-  const handleEditVehicle = (vehicle: VehicleSchema) => {
-    setEditingVehicle(vehicle);
+  /* ------------------------- handlers principais ----------------------- */
+  const handleEditVehicle = (vehicle: VehicleRow) => {
+    setErrorMessage(null);
+    setEditingVehicle({ ...vehicle });
+    setEditingMileageText(formatKm(vehicle.mileage));
   };
 
-  const handleDeleteVehicle = (vehicle: VehicleSchema) => {
+  const handleDeleteVehicle = (vehicle: VehicleRow) => {
     setDeletingVehicle(vehicle);
   };
 
-  const confirmDeleteVehicle = () => {
-    if (deletingVehicle) {
-      setVehicles((prev) => {
-        const updatedVehicles = prev.filter(
-          (vehicle) => vehicle.id !== deletingVehicle.id
-        );
-        return updatedVehicles.map((vehicle, index) => ({
-          ...vehicle,
-          id: index + 1,
-        }));
-      });
+  const confirmDeleteVehicle = async () => {
+    if (!deletingVehicle) return;
+    try {
+      await deleteVehicle(deletingVehicle.id);
+      await reloadVehicles();
+    } catch (e) {
+      console.error(e);
+    } finally {
       setDeletingVehicle(null);
     }
   };
 
   const handleAddVehicle = () => {
+    setErrorMessage(null);
     setAddingVehicle({
-      id: vehicles.length + 1,
       name: "",
-      brand: "",
       model: "",
       plate: "",
-      mileage: "",
+      mileage: 0,
     });
+    setAddingMileageText("");
   };
 
-  const handleSaveChanges = () => {
+  async function saveVehicle(payload: VehicleForm, isEdit: boolean) {
+    try {
+      setErrorMessage(null);
+      const parsed = vehicleSchema.parse(payload);
+
+      const input: VehicleInput = {
+        name: parsed.name,
+        model: parsed.model,
+        plate: parsed.plate,
+        mileage: parsed.mileage,
+      };
+
+      if (isEdit && parsed.id) {
+        await updateVehicle(parsed.id, input);
+        await reloadVehicles();
+        setEditingVehicle(null);
+      } else {
+        await createVehicle(input);
+        await reloadVehicles();
+        setAddingVehicle(null);
+      }
+    } catch (err: any) {
+      const msg =
+        err?.errors?.[0]?.message ||
+        err?.response?.data?.error ||
+        err?.message ||
+        "Erro ao salvar. Verifique os campos.";
+      setErrorMessage(msg);
+    }
+  }
+
+  const handleSaveChanges = async () => {
     if (editingVehicle) {
-      setVehicles((prev) =>
-        prev.map((vehicle) =>
-          vehicle.id === editingVehicle.id ? editingVehicle : vehicle
-        )
-      );
-      setEditingVehicle(null);
+      await saveVehicle(editingVehicle, true);
     } else if (addingVehicle) {
-      setVehicles((prev) => [...prev, addingVehicle]);
-      setAddingVehicle(null);
+      await saveVehicle(addingVehicle, false);
     }
   };
-
-  useEffect(() => {}, [vehicles]);
 
   return (
     <div className="max-w-4xl mx-auto p-6">
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-2xl font-semibold">Meus Veículos</h1>
-        <AlertDialog>
+
+        <AlertDialog
+          open={!!addingVehicle}
+          onOpenChange={(o) => !o && setAddingVehicle(null)}
+        >
           <AlertDialogTrigger asChild>
-            <Button variant={"default"} onClick={() => handleAddVehicle()}>
+            <Button variant={"default"} onClick={handleAddVehicle}>
               Cadastrar Veículo <Plus />
             </Button>
           </AlertDialogTrigger>
+
           {addingVehicle && (
             <AlertDialogContent>
               <AlertDialogHeader>
@@ -163,10 +193,12 @@ export function MyVehicles() {
                     X
                   </AlertDialogCancel>
                 </AlertDialogTitle>
+
                 <AlertDialogDescription className="space-y-2">
                   {errorMessage && (
                     <p className="text-red-500">{errorMessage}</p>
                   )}
+
                   <div>
                     <label className="text-gray-300">Nome do carro:</label>
                     <Input
@@ -181,20 +213,7 @@ export function MyVehicles() {
                       }
                     />
                   </div>
-                  <div>
-                    <label className="text-gray-300">Marca:</label>
-                    <Input
-                      className="mt-1"
-                      type="text"
-                      value={addingVehicle.brand}
-                      onChange={(e) =>
-                        setAddingVehicle({
-                          ...addingVehicle,
-                          brand: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
+
                   <div>
                     <label className="text-gray-300">Modelo:</label>
                     <Input
@@ -209,6 +228,7 @@ export function MyVehicles() {
                       }
                     />
                   </div>
+
                   <div>
                     <label className="text-gray-300">Placa:</label>
                     <Input
@@ -218,27 +238,29 @@ export function MyVehicles() {
                       onChange={(e) =>
                         setAddingVehicle({
                           ...addingVehicle,
-                          plate: e.target.value,
+                          plate: e.target.value.toUpperCase(),
                         })
                       }
                     />
                   </div>
+
                   <div>
                     <label className="text-gray-300">Quilometragem:</label>
                     <Input
                       className="mt-1"
                       type="text"
-                      value={addingVehicle.mileage}
-                      onChange={(e) =>
-                        setAddingVehicle({
-                          ...addingVehicle,
-                          mileage: e.target.value,
-                        })
-                      }
+                      placeholder="km"
+                      value={addingMileageText}
+                      onChange={(e) => {
+                        const { num, text } = maskKmInput(e.target.value);
+                        setAddingVehicle({ ...addingVehicle, mileage: num });
+                        setAddingMileageText(text);
+                      }}
                     />
                   </div>
                 </AlertDialogDescription>
               </AlertDialogHeader>
+
               <AlertDialogFooter>
                 <AlertDialogCancel onClick={() => setAddingVehicle(null)}>
                   Cancelar
@@ -261,11 +283,9 @@ export function MyVehicles() {
               <CardHeader>
                 <CardTitle>{vehicle.name}</CardTitle>
               </CardHeader>
+
               <CardContent className="flex justify-between items-center">
                 <div>
-                  <p className="text-sm text-gray-500">
-                    Marca: <span className="font-medium">{vehicle.brand}</span>
-                  </p>
                   <p className="text-sm text-gray-500">
                     Modelo: <span className="font-medium">{vehicle.model}</span>
                   </p>
@@ -274,11 +294,16 @@ export function MyVehicles() {
                   </p>
                   <p className="text-sm text-gray-500">
                     Quilometragem:{" "}
-                    <span className="font-medium">{vehicle.mileage}</span>
+                    <span className="font-medium">{km(vehicle.mileage)}</span>
                   </p>
                 </div>
+
                 <div className="flex gap-2">
-                  <AlertDialog>
+                  {/* Editar */}
+                  <AlertDialog
+                    open={!!editingVehicle && editingVehicle.id === vehicle.id}
+                    onOpenChange={(o) => !o && setEditingVehicle(null)}
+                  >
                     <AlertDialogTrigger asChild>
                       <Button
                         variant="outline"
@@ -288,7 +313,8 @@ export function MyVehicles() {
                         Editar
                       </Button>
                     </AlertDialogTrigger>
-                    {editingVehicle && (
+
+                    {editingVehicle && editingVehicle.id === vehicle.id && (
                       <AlertDialogContent>
                         <AlertDialogHeader>
                           <AlertDialogTitle className="flex justify-between">
@@ -299,7 +325,12 @@ export function MyVehicles() {
                               X
                             </AlertDialogCancel>
                           </AlertDialogTitle>
+
                           <AlertDialogDescription className="space-y-2">
+                            {errorMessage && (
+                              <p className="text-red-500">{errorMessage}</p>
+                            )}
+
                             <div>
                               <label className="text-gray-300">
                                 Nome do carro:
@@ -316,10 +347,9 @@ export function MyVehicles() {
                                 }
                               />
                             </div>
+
                             <div>
-                              <label className="text-gray-300">
-                                Marca e Modelo:
-                              </label>
+                              <label className="text-gray-300">Modelo:</label>
                               <Input
                                 className="mt-1"
                                 type="text"
@@ -332,6 +362,7 @@ export function MyVehicles() {
                                 }
                               />
                             </div>
+
                             <div>
                               <label className="text-gray-300">Placa:</label>
                               <Input
@@ -341,11 +372,12 @@ export function MyVehicles() {
                                 onChange={(e) =>
                                   setEditingVehicle({
                                     ...editingVehicle,
-                                    plate: e.target.value,
+                                    plate: e.target.value.toUpperCase(),
                                   })
                                 }
                               />
                             </div>
+
                             <div>
                               <label className="text-gray-300">
                                 Quilometragem:
@@ -353,17 +385,23 @@ export function MyVehicles() {
                               <Input
                                 className="mt-1"
                                 type="text"
-                                value={editingVehicle.mileage}
-                                onChange={(e) =>
+                                placeholder="km"
+                                value={editingMileageText}
+                                onChange={(e) => {
+                                  const { num, text } = maskKmInput(
+                                    e.target.value
+                                  );
                                   setEditingVehicle({
                                     ...editingVehicle,
-                                    mileage: e.target.value,
-                                  })
-                                }
+                                    mileage: num,
+                                  });
+                                  setEditingMileageText(text);
+                                }}
                               />
                             </div>
                           </AlertDialogDescription>
                         </AlertDialogHeader>
+
                         <AlertDialogFooter>
                           <AlertDialogCancel
                             onClick={() => setEditingVehicle(null)}
@@ -377,7 +415,14 @@ export function MyVehicles() {
                       </AlertDialogContent>
                     )}
                   </AlertDialog>
-                  <AlertDialog>
+
+                  {/* Excluir */}
+                  <AlertDialog
+                    open={
+                      !!deletingVehicle && deletingVehicle.id === vehicle.id
+                    }
+                    onOpenChange={(o) => !o && setDeletingVehicle(null)}
+                  >
                     <AlertDialogTrigger asChild>
                       <Button
                         variant="destructive"
@@ -387,7 +432,8 @@ export function MyVehicles() {
                         Excluir
                       </Button>
                     </AlertDialogTrigger>
-                    {deletingVehicle && (
+
+                    {deletingVehicle && deletingVehicle.id === vehicle.id && (
                       <AlertDialogContent>
                         <AlertDialogHeader>
                           <AlertDialogTitle className="flex justify-between pb-7">

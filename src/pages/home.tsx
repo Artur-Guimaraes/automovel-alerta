@@ -1,7 +1,9 @@
-import { useState, useEffect } from "react";
+import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/components/theme/theme-provider";
+import { getDashboard } from "@/services/dashboard.service";
 import {
   LineChart,
   Line,
@@ -14,90 +16,56 @@ import {
   Bar,
 } from "recharts";
 
-interface Vehicle {
-  id: number;
-  name: string;
-  mileage: number;
-}
-
-interface Maintenance {
-  id: number;
-  vehicleId: number;
-  type: string;
-  date: string;
-  cost: string;
-  status: "Pendente" | "Concluído" | "Próximo a vencer";
-}
-
 export function Home() {
   const { theme } = useTheme();
-  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
-  const [maintenances, setMaintenances] = useState<Maintenance[]>([]);
+  const { data, isLoading } = useQuery({
+    queryKey: ["dashboard"],
+    queryFn: getDashboard,
+  });
 
-  useEffect(() => {
-    setVehicles([
-      { id: 1, name: "Meu Peugeot", mileage: 38000 },
-      { id: 2, name: "SUV Família", mileage: 45000 },
-      { id: 3, name: "Compacto da Cidade", mileage: 29000 },
-    ]);
-  }, []);
+  const vehicles = data?.vehicles ?? [];
+  const recentMaintenances = data?.recentMaintenances ?? [];
 
-  useEffect(() => {
-    setMaintenances([
-      {
-        id: 1,
-        vehicleId: 1,
-        type: "Troca de Óleo",
-        date: "2024-03-01",
-        cost: "R$ 200,00",
-        status: "Concluído",
-      },
-      {
-        id: 2,
-        vehicleId: 1,
-        type: "Troca de Filtros",
-        date: "2024-04-10",
-        cost: "R$ 150,00",
-        status: "Próximo a vencer",
-      },
-      {
-        id: 3,
-        vehicleId: 2,
-        type: "Revisão Completa",
-        date: "2024-02-20",
-        cost: "R$ 750,00",
-        status: "Concluído",
-      },
-      {
-        id: 4,
-        vehicleId: 3,
-        type: "Alinhamento",
-        date: "2024-05-01",
-        cost: "R$ 180,00",
-        status: "Pendente",
-      },
-    ]);
-  }, []);
+  const totalVehicles = data?.vehiclesCount ?? 0;
+  // Mantemos o card “Próximas Manutenções” mostrando uma contagem útil com os dados disponíveis
+  const pendingMaintenancesCount = recentMaintenances.length;
 
-  const totalVehicles = vehicles.length;
-  const pendingMaintenances = maintenances.filter(
-    (maintenance) =>
-      maintenance.status === "Pendente" ||
-      maintenance.status === "Próximo a vencer"
-  );
-  const lastMaintenance = maintenances.find(
-    (maintenance) => maintenance.status === "Concluído"
+  const lastMaintenance = useMemo(() => {
+    if (!recentMaintenances.length) return null;
+    const m = [...recentMaintenances].sort((a, b) => b.date - a.date)[0];
+    return {
+      title: m.title,
+      date: new Date(m.date * 1000).toLocaleDateString("pt-BR"),
+    };
+  }, [recentMaintenances]);
+
+  const mileageData = useMemo(
+    () => vehicles.map((v) => ({ name: v.name, mileage: v.mileage ?? 0 })),
+    [vehicles]
   );
 
-  const mileageData = vehicles.map((vehicle) => ({
-    name: vehicle.name,
-    mileage: vehicle.mileage,
-  }));
+  const maintCostSeries = useMemo(
+    () =>
+      recentMaintenances
+        .slice()
+        .sort((a, b) => a.date - b.date)
+        .map((m) => ({
+          date: new Date(m.date * 1000).toLocaleDateString("pt-BR"),
+          cost: Number(m.cost ?? 0),
+        })),
+    [recentMaintenances]
+  );
 
   const isDarkMode = theme === "dark";
   const axisColor = isDarkMode ? "#d1d5db" : "#374151";
   const gridColor = isDarkMode ? "#4b5563" : "#e5e7eb";
   const barColor = isDarkMode ? "#60a5fa" : "#2563eb";
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-48">Carregando…</div>
+    );
+  }
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -116,7 +84,7 @@ export function Home() {
             <CardTitle>Próximas Manutenções</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold">{pendingMaintenances.length}</p>
+            <p className="text-3xl font-bold">{pendingMaintenancesCount}</p>
             <Button variant="outline" className="mt-2 w-full">
               Ver todas
             </Button>
@@ -130,11 +98,11 @@ export function Home() {
           <CardContent>
             {lastMaintenance ? (
               <>
-                <p className="text-lg font-semibold">{lastMaintenance.type}</p>
+                <p className="text-lg font-semibold">{lastMaintenance.title}</p>
                 <p className="text-gray-500 text-sm">{lastMaintenance.date}</p>
               </>
             ) : (
-              <p className="text-gray-500">Nenhuma manutenção concluída</p>
+              <p className="text-gray-500">Nenhuma manutenção encontrada</p>
             )}
           </CardContent>
         </Card>
@@ -164,14 +132,7 @@ export function Home() {
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
-              <LineChart
-                data={maintenances.map((maintenance) => ({
-                  date: maintenance.date,
-                  cost: parseFloat(
-                    maintenance.cost.replace("R$", "").replace(",", ".")
-                  ),
-                }))}
-              >
+              <LineChart data={maintCostSeries}>
                 <CartesianGrid stroke={gridColor} />
                 <XAxis dataKey="date" stroke={axisColor} />
                 <YAxis stroke={axisColor} />

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   format,
   startOfMonth,
@@ -8,6 +8,8 @@ import {
   isSameDay,
   isSameMonth,
   isSameYear,
+  differenceInCalendarMonths,
+  startOfDay,
 } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
@@ -26,7 +28,12 @@ import {
   Cell,
 } from "recharts";
 import { z } from "zod";
-import { Plus, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  Plus,
+  ChevronLeft,
+  ChevronRight,
+  Calendar as CalendarIcon,
+} from "lucide-react";
 
 // shadcn/ui
 import { Button } from "@/components/ui/button";
@@ -50,9 +57,27 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useTheme } from "@/components/theme/theme-provider";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
 
-// ===== Tipos =====
-export type Vehicle = { id: string; nome: string };
+// services
+import {
+  listVehicles,
+  type Vehicle as VehicleRow,
+} from "@/services/vehicle.service";
+import { listRefuelings } from "@/services/refueling.service";
+import { listMaintenances } from "@/services/maintenance.service";
+import {
+  listOtherExpenses,
+  createOtherExpense,
+  type OtherExpenseInput,
+} from "@/services/expenses.service";
+
+// ===== Tipos locais (unificados) =====
 export type ExpenseCategory =
   | "Combustível"
   | "Manutenção"
@@ -63,8 +88,8 @@ export type ExpenseCategory =
 export type Recurrence = "Nenhuma" | "Semanal" | "Mensal" | "Anual";
 
 export type Expense = {
-  id: string;
-  vehicleId: string;
+  id: string | number;
+  vehicleId: number;
   categoria: ExpenseCategory;
   descricao?: string;
   valor: number; // R$
@@ -85,23 +110,37 @@ const pBRL = (s: string) => {
   const v = Number(only);
   return isNaN(v) ? 0 : v;
 };
+const toISO = (date: number | string) =>
+  typeof date === "number"
+    ? new Date(date * 1000).toISOString()
+    : new Date(date).toISOString();
+
+// Máscara BRL: digita números e formata em moeda
+const maskCurrencyBRL = (raw: string) => {
+  const digits = raw.replace(/\D/g, "");
+  const value = Number(digits) / 100;
+  const mask = value.toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
+  return { mask, value };
+};
 
 // ===== Zod schema com máscaras =====
 const schema = z.object({
-  vehicleId: z.string().min(1, "Selecione um veículo"),
+  vehicleId: z.number().min(1, "Selecione um veículo"),
   categoria: z.custom<ExpenseCategory>(),
   descricao: z.string().optional().default(""),
   valorMask: z
     .string()
     .min(1)
     .transform((s) => ({ mask: s, value: pBRL(s) })),
-  dataHora: z.string(),
+  dataHora: z.string(), // "yyyy-MM-dd"
   recorrente: z.boolean().default(false),
   periodicidade: z.custom<Recurrence>().optional(),
   observacoes: z.string().optional().default(""),
 });
 
-// ===== Página =====
 export default function Expenses() {
   const { theme } = useTheme();
   const isDarkMode = theme === "dark";
@@ -133,119 +172,103 @@ export default function Expenses() {
     ? "rgba(148,163,184,0.08)"
     : "rgba(2,6,23,0.06)";
 
-  // ===== MOCKS =====
-  const [vehicles] = useState<Vehicle[]>([
-    { id: "v1", nome: "Onix 1.0" },
-    { id: "v2", nome: "HB20 1.6" },
-  ]);
-  const [vehicleId, setVehicleId] = useState<string>("v1");
+  // ===== Estado (dinâmico do back) =====
+  const [vehicles, setVehicles] = useState<VehicleRow[]>([]);
+  const [vehicleId, setVehicleId] = useState<number>(0);
 
-  // gastos vindos de outras telas (abastecimento e manutenção) — mocks
-  const mockRefueling: Expense[] = [
-    {
-      id: "r1",
-      vehicleId: "v1",
-      categoria: "Combustível",
-      valor: 220.0,
-      dataHora: new Date().toISOString(),
-    },
-    {
-      id: "r2",
-      vehicleId: "v1",
-      categoria: "Combustível",
-      valor: 180.0,
-      dataHora: new Date(Date.now() - 1000 * 60 * 60 * 24 * 10).toISOString(),
-    },
-    {
-      id: "r3",
-      vehicleId: "v2",
-      categoria: "Combustível",
-      valor: 260.0,
-      dataHora: new Date(Date.now() - 1000 * 60 * 60 * 24 * 20).toISOString(),
-    },
-  ];
-  const mockMaintenance: Expense[] = [
-    {
-      id: "m1",
-      vehicleId: "v1",
-      categoria: "Manutenção",
-      descricao: "Troca de óleo",
-      valor: 150.0,
-      dataHora: new Date(Date.now() - 1000 * 60 * 60 * 24 * 15).toISOString(),
-    },
-    {
-      id: "m2",
-      vehicleId: "v1",
-      categoria: "Manutenção",
-      descricao: "Alinhamento",
-      valor: 100.0,
-      dataHora: new Date(Date.now() - 1000 * 60 * 60 * 24 * 32).toISOString(),
-    },
-    {
-      id: "m3",
-      vehicleId: "v2",
-      categoria: "Manutenção",
-      descricao: "Pastilha",
-      valor: 320.0,
-      dataHora: new Date(Date.now() - 1000 * 60 * 60 * 24 * 8).toISOString(),
-    },
-  ];
+  const [refuelings, setRefuelings] = useState<any[]>([]);
+  const [maintenances, setMaintenances] = useState<any[]>([]);
+  const [otherExpenses, setOtherExpenses] = useState<Expense[]>([]);
 
-  // outros gastos (criáveis nesta tela)
-  const [otherExpenses, setOtherExpenses] = useState<Expense[]>([
-    {
-      id: "o1",
-      vehicleId: "v1",
-      categoria: "Estacionamento",
-      valor: 30,
-      dataHora: new Date(Date.now() - 1000 * 60 * 60 * 4).toISOString(),
-    },
-    {
-      id: "o2",
-      vehicleId: "v1",
-      categoria: "Seguro",
-      valor: 250,
-      dataHora: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3).toISOString(),
-      recorrente: true,
-      periodicidade: "Mensal",
-    },
-    {
-      id: "o3",
-      vehicleId: "v1",
-      categoria: "Financiamento",
-      valor: 900,
-      dataHora: new Date(Date.now() - 1000 * 60 * 60 * 24 * 25).toISOString(),
-      recorrente: true,
-      periodicidade: "Mensal",
-    },
-  ]);
+  // carrega veículos e seleciona o primeiro
+  useEffect(() => {
+    (async () => {
+      const v = await listVehicles();
+      setVehicles(v);
+      if (v.length) setVehicleId(v[0].id);
+    })();
+  }, []);
 
-  // unifica tudo por veículo selecionado
-  const allExpenses = useMemo(() => {
-    const merged = [
-      ...mockRefueling,
-      ...mockMaintenance,
-      ...otherExpenses,
-    ].filter((e) => e.vehicleId === vehicleId);
+  // carrega gastos quando muda o veículo
+  useEffect(() => {
+    if (!vehicleId) return;
+    (async () => {
+      const [r, m, o] = await Promise.all([
+        listRefuelings(vehicleId),
+        listMaintenances(vehicleId),
+        listOtherExpenses(vehicleId),
+      ]);
+      setRefuelings(r);
+      setMaintenances(m);
+      setOtherExpenses(
+        o.map<Expense>((it) => ({
+          id: it.id,
+          vehicleId,
+          categoria: it.category,
+          descricao: it.description,
+          valor: Number(it.amount ?? 0),
+          dataHora: toISO(it.date),
+          recorrente: !!it.recurring,
+          periodicidade: it.recurrence,
+          observacoes: it.notes,
+        }))
+      );
+    })();
+  }, [vehicleId]);
+
+  // unifica tudo
+  const allExpenses = useMemo<Expense[]>(() => {
+    const fuels: Expense[] = refuelings.map((r) => ({
+      id: r.id,
+      vehicleId: r.vehicleId ?? vehicleId,
+      categoria: "Combustível",
+      descricao: "Abastecimento",
+      valor:
+        r.total != null
+          ? Number(r.total)
+          : Number(r.liters) * Number(r.pricePerLiter),
+      dataHora: toISO(r.date),
+    }));
+
+    const maint: Expense[] = maintenances.map((m) => ({
+      id: m.id,
+      vehicleId: m.vehicleId ?? vehicleId,
+      categoria: "Manutenção",
+      descricao: m.title ?? "Manutenção",
+      valor: Number(m.cost ?? 0),
+      dataHora: toISO(m.date),
+    }));
+
+    const merged = [...fuels, ...maint, ...otherExpenses].filter(
+      (e) => e.vehicleId === vehicleId
+    );
+
     // ordena desc pela data
     return merged.sort(
       (a, b) => new Date(b.dataHora).getTime() - new Date(a.dataHora).getTime()
     );
-  }, [vehicleId, otherExpenses]);
+  }, [vehicleId, refuelings, maintenances, otherExpenses]);
 
-  // ===== formulário do modal (com máscara BRL) =====
+  // ===== formulário do modal (com máscara BRL e datepicker) =====
+  const [open, setOpen] = useState(false);
+  const todayStr = format(new Date(), "yyyy-MM-dd");
   const [form, setForm] = useState({
     vehicleId: vehicleId,
     categoria: "Estacionamento" as ExpenseCategory,
     descricao: "",
-    valorMask: fBRL(0),
-    dataHora: new Date().toISOString().slice(0, 16),
+    valorMask: "", // usuário digita números e vemos "R$ x,xx"
+    dataHora: todayStr, // apenas data (yyyy-MM-dd)
     recorrente: false,
     periodicidade: "Mensal" as Recurrence,
     observacoes: "",
   });
 
-  // ===== Cálculos/KPIs =====
+  // mantém vehicleId do form sincronizado
+  useEffect(() => {
+    setForm((f) => ({ ...f, vehicleId }));
+  }, [vehicleId]);
+
+  // ===== KPIs =====
   const now = new Date();
   const kpis = useMemo(() => {
     const total = allExpenses.reduce((a, e) => a + e.valor, 0);
@@ -258,8 +281,18 @@ export default function Expenses() {
     const anoAtual = allExpenses
       .filter((e) => isSameYear(new Date(e.dataHora), now))
       .reduce((a, e) => a + e.valor, 0);
-    return { total, hoje, mesAtual, anoAtual };
-  }, [allExpenses]);
+
+    // gasto médio mensal = total / nº de meses entre primeiro gasto e agora (>=1)
+    let mediaMensal = 0;
+    if (allExpenses.length) {
+      const first = startOfMonth(
+        startOfDay(new Date(allExpenses[allExpenses.length - 1].dataHora))
+      );
+      const months = Math.max(1, differenceInCalendarMonths(now, first) + 1);
+      mediaMensal = total / months;
+    }
+    return { total, hoje, mesAtual, anoAtual, mediaMensal };
+  }, [allExpenses, now]);
 
   // ===== Dados de gráficos =====
   const chartData = useMemo(() => {
@@ -327,7 +360,7 @@ export default function Expenses() {
     );
 
     return { last30, porMes, pizza };
-  }, [allExpenses]);
+  }, [allExpenses, now]);
 
   const CATEGORY_COLORS: Record<ExpenseCategory, string> = {
     Combustível: COLORS.laranja,
@@ -471,24 +504,54 @@ export default function Expenses() {
   const prev = () =>
     setChartIndex((i) => (i - 1 + charts.length) % charts.length);
 
-  // ===== Modal =====
-  const [open, setOpen] = useState(false);
-  function onSubmit(e: React.FormEvent) {
+  // ===== Modal submit =====
+  async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     const parsed = schema.parse({ ...form, vehicleId });
-    const novo: Expense = {
-      id: crypto.randomUUID(),
-      vehicleId: parsed.vehicleId,
-      categoria: form.categoria,
-      descricao: form.descricao,
-      valor: parsed.valorMask.value,
-      dataHora: form.dataHora,
-      recorrente: form.recorrente,
-      periodicidade: form.recorrente ? form.periodicidade : undefined,
-      observacoes: form.observacoes,
+    const payload: OtherExpenseInput = {
+      vehicleId,
+      category: form.categoria,
+      description: form.descricao,
+      amount: parsed.valorMask.value, // numérico a partir da máscara
+      date: form.dataHora, // envia "yyyy-MM-dd" (evita bug do -1 dia)
+      recurring: form.recorrente,
+      recurrence: form.recorrente ? form.periodicidade : "Nenhuma",
+      notes: form.observacoes,
     };
-    setOtherExpenses((old) => [novo, ...old]);
-    setOpen(false);
+
+    await createOtherExpense(payload);
+
+    // recarrega apenas “outros gastos”
+    const o = await listOtherExpenses(vehicleId);
+    setOtherExpenses(
+      o.map((it) => ({
+        id: it.id,
+        vehicleId,
+        categoria: it.category,
+        descricao: it.description,
+        valor: Number(it.amount ?? 0),
+        dataHora:
+          typeof it.date === "number"
+            ? new Date(it.date * 1000).toISOString()
+            : String(it.date),
+        recorrente: !!it.recurring,
+        periodicidade: it.recurrence,
+        observacoes: it.notes,
+      }))
+    );
+
+    // limpa os campos e mantém modal aberto para próxima inserção
+    const newTodayStr = format(new Date(), "yyyy-MM-dd");
+    setForm({
+      vehicleId,
+      categoria: "Estacionamento",
+      descricao: "",
+      valorMask: "",
+      dataHora: newTodayStr,
+      recorrente: false,
+      periodicidade: "Mensal",
+      observacoes: "",
+    });
   }
 
   return (
@@ -504,14 +567,17 @@ export default function Expenses() {
         </div>
 
         <div className="flex items-center gap-3">
-          <Select value={vehicleId} onValueChange={setVehicleId}>
+          <Select
+            value={vehicleId ? String(vehicleId) : undefined}
+            onValueChange={(v) => setVehicleId(Number(v))}
+          >
             <SelectTrigger className="w-[220px]">
               <SelectValue placeholder="Escolha um veículo" />
             </SelectTrigger>
             <SelectContent>
               {vehicles.map((v) => (
-                <SelectItem key={v.id} value={v.id}>
-                  {v.nome}
+                <SelectItem key={v.id} value={String(v.id)}>
+                  {v.name}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -519,7 +585,7 @@ export default function Expenses() {
 
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-              <Button size="sm" className="gap-2">
+              <Button size="sm" className="gap-2" disabled={!vehicleId}>
                 <Plus className="h-4 w-4" /> Registrar gasto
               </Button>
             </DialogTrigger>
@@ -559,27 +625,51 @@ export default function Expenses() {
                   <Label>Valor</Label>
                   <Input
                     type="text"
+                    inputMode="numeric"
                     value={form.valorMask}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        valorMask: fBRL(pBRL(e.target.value)),
-                      })
-                    }
+                    onChange={(e) => {
+                      const { mask } = maskCurrencyBRL(e.target.value);
+                      setForm({ ...form, valorMask: mask });
+                    }}
                     placeholder="R$ 0,00"
                     className="focus-visible:ring-1 focus-visible:ring-muted-foreground/30"
                   />
                 </div>
 
                 <div className="col-span-12 sm:col-span-4">
-                  <Label>Data e hora</Label>
-                  <Input
-                    type="datetime-local"
-                    value={form.dataHora}
-                    onChange={(e) =>
-                      setForm({ ...form, dataHora: e.target.value })
-                    }
-                  />
+                  <Label>Data</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className="w-full justify-start"
+                      >
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {form.dataHora
+                          ? format(new Date(form.dataHora), "dd/MM/yyyy", {
+                              locale: ptBR,
+                            })
+                          : "Selecionar data"}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={
+                          form.dataHora ? new Date(form.dataHora) : undefined
+                        }
+                        onSelect={(d) => {
+                          if (d)
+                            setForm({
+                              ...form,
+                              dataHora: format(d, "yyyy-MM-dd"),
+                            });
+                        }}
+                        initialFocus
+                        locale={ptBR}
+                      />
+                    </PopoverContent>
+                  </Popover>
                 </div>
 
                 <div className="col-span-12">
@@ -635,9 +725,9 @@ export default function Expenses() {
                     type="button"
                     onClick={() => setOpen(false)}
                   >
-                    Cancelar
+                    Fechar
                   </Button>
-                  <Button type="submit">Salvar</Button>
+                  <Button type="submit">Salvar e adicionar outro</Button>
                 </div>
               </form>
             </DialogContent>
@@ -653,12 +743,16 @@ export default function Expenses() {
             <CardHeader>
               <CardTitle>Últimos gastos</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3 overflow-y-auto pr-2">
+            {/* scrollbar escondida */}
+            <CardContent className="space-y-3 overflow-y-auto pr-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {allExpenses.map((g) => (
-                <div key={g.id} className="rounded-xl border p-3 text-sm">
+                <div
+                  key={String(g.id)}
+                  className="rounded-xl border p-3 text-sm"
+                >
                   <div className="flex items-center justify-between">
                     <span className="font-medium">
-                      {format(new Date(g.dataHora), "dd/MM/yyyy HH:mm", {
+                      {format(new Date(g.dataHora), "dd/MM/yyyy", {
                         locale: ptBR,
                       })}
                     </span>
@@ -703,9 +797,9 @@ export default function Expenses() {
           </Card>
         </div>
 
-        {/* direita – KPIs */}
+        {/* direita – KPIs (inclui gasto médio mensal) */}
         <div className="col-span-12 xl:col-span-3">
-          <div className="grid h-[520px] grid-rows-3 gap-4">
+          <div className="grid h-[520px] grid-rows-4 gap-4">
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Hoje</CardTitle>
@@ -739,7 +833,20 @@ export default function Expenses() {
                   {fBRL(kpis.anoAtual)}
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  Acumulado de {format(now, "yyyy")}{" "}
+                  Acumulado de {format(now, "yyyy")}
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Gasto médio mensal</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-semibold">
+                  {fBRL(kpis.mediaMensal)}
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Média desde o primeiro registro do veículo
                 </p>
               </CardContent>
             </Card>

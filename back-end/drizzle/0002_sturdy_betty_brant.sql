@@ -1,0 +1,1 @@
+ALTER TABLE `maintenances` ADD `mileage` real DEFAULT 0;

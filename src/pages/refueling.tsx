@@ -1,30 +1,17 @@
-import { useEffect, useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { VehicleSelect } from "@/components/vehicle-select";
-import { listVehicles } from "@/services/vehicle.service";
-import {
-  listRefuelings,
-  createRefueling,
-  deleteRefueling,
-  type Refueling,
-  type FuelType,
-} from "@/services/refueling.service";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import React, { useEffect, useMemo, useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import {
   Select,
-  SelectTrigger,
-  SelectValue,
   SelectContent,
   SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -34,243 +21,546 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { CalendarIcon, Trash2 } from "lucide-react";
-import { format } from "date-fns";
-import { ptBR } from "date-fns/locale";
-import { brl, dmy } from "@/lib/format";
+import { Separator } from "@/components/ui/separator";
+import { Trash2 } from "lucide-react";
 
-const fuelTypes: { value: FuelType; label: string }[] = [
-  { value: "gasolina", label: "Gasolina Comum" },
-  { value: "gasolina_aditivada", label: "Gasolina Aditivada" },
-  { value: "etanol", label: "Etanol" },
-  { value: "diesel", label: "Diesel S10" },
-  { value: "gnv", label: "GNV" },
-];
+import { api } from "@/lib/api";
+import {
+  createRefueling,
+  deleteRefueling,
+  getRefuelingMetrics,
+  listRefuelings,
+  type Refueling,
+} from "@/services/refueling.service";
 
-export default function RefuelingsPage() {
-  // ===== veículos
-  const { data: vehicles, isLoading: vehiclesLoading } = useQuery({
-    queryKey: ["vehicles"],
-    queryFn: listVehicles,
+// utils
+const fBRL = (n: number) =>
+  n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+type Vehicle = {
+  id: number;
+  name: string;
+};
+
+const FUEL_LABELS: Record<string, string> = {
+  GASOLINA: "Gasolina",
+  GASOLINA_ADITIVADA: "Gasolina Aditivada",
+  ETANOL: "Etanol",
+  DIESEL: "Diesel",
+};
+
+const CHOICES = [
+  { value: "30d", label: "Últimos 30 dias" },
+  { value: "90d", label: "Últimos 90 dias" },
+  { value: "180d", label: "Últimos 180 dias" },
+  { value: "365d", label: "Últimos 12 meses" },
+] as const;
+
+export default function RefuelingPage() {
+  const qc = useQueryClient();
+
+  const [vehicleId, setVehicleId] = useState<number | null>(null);
+  const [range, setRange] = useState<"30d" | "90d" | "180d" | "365d">("90d");
+
+  // form novo abastecimento
+  const [liters, setLiters] = useState<string>("");
+  const [pricePerLiter, setPricePerLiter] = useState<string>("");
+  const [fuelType, setFuelType] = useState<string>("GASOLINA");
+  const [dateStr, setDateStr] = useState<string>(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
+      2,
+      "0"
+    )}-${String(now.getDate()).padStart(2, "0")}`;
   });
-  const [vehicleId, setVehicleId] = useState<number | undefined>(undefined);
 
-  // auto-seleciona o 1º veículo quando carregar
+  // vehicles
+  const vehiclesQ = useQuery({
+    queryKey: ["vehicles"],
+    queryFn: async () => {
+      const { data } = await api.get<Vehicle[]>("/api/vehicles");
+      return data;
+    },
+  });
+
   useEffect(() => {
-    if (!vehicleId && vehicles?.length) {
-      setVehicleId(vehicles[0].id);
+    if (vehiclesQ.data && vehiclesQ.data.length && vehicleId == null) {
+      setVehicleId(vehiclesQ.data[0].id);
     }
-  }, [vehicles, vehicleId]);
+  }, [vehiclesQ.data, vehicleId]);
 
-  // ===== listagem conforme vehicleId
-  const {
-    data: rows,
-    isFetching,
-    refetch,
-  } = useQuery({
-    queryKey: ["refuelings", vehicleId],
-    queryFn: () => listRefuelings(vehicleId as number),
+  // lista de abastecimentos do veículo
+  const listQ = useQuery({
+    queryKey: ["refuelings:list", vehicleId],
+    queryFn: () => listRefuelings(vehicleId!),
     enabled: !!vehicleId,
   });
 
-  // ===== form
-  const [liters, setLiters] = useState("");
-  const [ppl, setPpl] = useState("");
-  const [date, setDate] = useState<Date | undefined>(new Date()); // placeholder = hoje
-  const [fuelType, setFuelType] = useState<FuelType>("gasolina");
+  // métricas (usadas pela calculadora)
+  const metricsQ = useQuery({
+    queryKey: ["refuelings:metrics", vehicleId, range],
+    queryFn: () => getRefuelingMetrics(vehicleId!, range),
+    enabled: !!vehicleId,
+  });
 
-  // total estimado
-  const parsedLiters = Number((liters || "").replace(",", "."));
-  const parsedPpl = Number((ppl || "").replace(",", "."));
-  const estimated = isNaN(parsedLiters * parsedPpl)
-    ? 0
-    : parsedLiters * parsedPpl;
-
+  // mutations
   const createMut = useMutation({
-    mutationFn: () =>
-      createRefueling({
-        vehicleId: vehicleId as number,
-        liters: parsedLiters,
-        pricePerLiter: parsedPpl,
-        date: date ?? new Date(),
-        fuelType,
-      }),
+    mutationFn: createRefueling,
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["refuelings:list", vehicleId] });
+      qc.invalidateQueries({ queryKey: ["refuelings:metrics", vehicleId] });
+      // limpa form
       setLiters("");
-      setPpl("");
-      setDate(new Date());
-      setFuelType("gasolina");
-      refetch();
+      setPricePerLiter("");
+      setFuelType("GASOLINA");
+      const now = new Date();
+      setDateStr(
+        `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
+          2,
+          "0"
+        )}-${String(now.getDate()).padStart(2, "0")}`
+      );
     },
   });
 
-  // ===== exclusão com confirmação (AlertDialog)
-  const [toDeleteId, setToDeleteId] = useState<number | null>(null);
   const deleteMut = useMutation({
     mutationFn: (id: number) => deleteRefueling(id),
     onSuccess: () => {
-      setToDeleteId(null);
-      refetch();
+      qc.invalidateQueries({ queryKey: ["refuelings:list", vehicleId] });
+      qc.invalidateQueries({ queryKey: ["refuelings:metrics", vehicleId] });
     },
   });
 
-  // ===== estados vazios
-  if (vehiclesLoading) {
-    return <div className="max-w-4xl mx-auto p-6">Carregando…</div>;
+  // total estimado do form
+  const estimatedTotal = useMemo(() => {
+    const l = Number(String(liters).replace(",", "."));
+    const p = Number(String(pricePerLiter).replace(",", "."));
+    if (isNaN(l) || isNaN(p)) return 0;
+    return l * p;
+  }, [liters, pricePerLiter]);
+
+  // ação
+  function addRefueling() {
+    if (!vehicleId) return;
+    createMut.mutate({
+      vehicleId,
+      liters,
+      pricePerLiter,
+      date: dateStr,
+      fuelType,
+    });
   }
-  if (!vehicles?.length) {
-    return (
-      <div className="max-w-4xl mx-auto p-6">
-        Cadastre um veículo primeiro em <b>Meus Veículos</b>.
-      </div>
-    );
-  }
+
+  // ================== CALCULADORA GASOLINA x ETANOL ==================
+
+  // preços digitáveis pelo usuário (default = preço médio do período se houver)
+  const [priceGas, setPriceGas] = useState<string>("");
+  const [priceEta, setPriceEta] = useState<string>("");
+
+  // sempre que métricas mudarem, atualizar defaults dos preços
+  useEffect(() => {
+    if (!metricsQ.data) return;
+    const { byFuelType } = metricsQ.data;
+    const g = byFuelType["GASOLINA"] || byFuelType["GASOLINA_ADITIVADA"];
+    const e = byFuelType["ETANOL"];
+
+    if (g && g.liters > 0) {
+      const avgG = g.cost / g.liters;
+      setPriceGas(avgG.toFixed(2).replace(".", ","));
+    }
+    if (e && e.liters > 0) {
+      const avgE = e.cost / e.liters;
+      setPriceEta(avgE.toFixed(2).replace(".", ","));
+    }
+  }, [metricsQ.data]);
+
+  // cálculo baseado no histórico
+  const calc = useMemo(() => {
+    const m = metricsQ.data;
+    if (!m) return null;
+
+    const totalLiters = m.liters;
+    const km = m.kmDriven ?? null;
+
+    const g = m.byFuelType["GASOLINA"] || m.byFuelType["GASOLINA_ADITIVADA"];
+    const e = m.byFuelType["ETANOL"];
+
+    const toNum = (s: string) =>
+      Number(
+        String(s || "0")
+          .replace(/\./g, "")
+          .replace(",", ".")
+      );
+
+    const priceG = toNum(priceGas);
+    const priceE = toNum(priceEta);
+
+    // Se não temos quilômetros (usuário ainda não registrou manutenção com km),
+    // aplicamos fallback da “regra dos 70%”.
+    if (km == null || km <= 0 || totalLiters <= 0) {
+      const ratio = priceE > 0 && priceG > 0 ? priceE / priceG : NaN;
+      const tip =
+        isFinite(ratio) && !isNaN(ratio)
+          ? ratio <= 0.7
+            ? "Pelo preço atual, Etanol está ≤ 70% do preço da Gasolina (tende a compensar)."
+            : "Etanol está > 70% do preço da Gasolina (Gasolina tende a compensar)."
+          : "Digite os preços para comparar (regra dos 70%).";
+      const winner =
+        isFinite(ratio) && !isNaN(ratio)
+          ? ratio <= 0.7
+            ? "ETANOL"
+            : "GASOLINA"
+          : null;
+
+      return {
+        mode: "fallback" as const,
+        tip,
+        winner,
+        costKmGas: null,
+        costKmEta: null,
+        effGas: null,
+        effEta: null,
+      };
+    }
+
+    // km por tipo (proporcional aos litros de cada)
+    const litersG = g?.liters ?? 0;
+    const costG = g?.cost ?? 0;
+    const litersE = e?.liters ?? 0;
+    const costE = e?.cost ?? 0;
+
+    // evita divisão por zero
+    const shareG = totalLiters > 0 ? litersG / totalLiters : 0;
+    const shareE = totalLiters > 0 ? litersE / totalLiters : 0;
+
+    const kmG = km * shareG;
+    const kmE = km * shareE;
+
+    // eficiência por tipo do histórico (km/L)
+    const effGas = litersG > 0 ? kmG / litersG : null;
+    const effEta = litersE > 0 ? kmE / litersE : null;
+
+    // custo por km estimado usando o preço digitado
+    const costKmGas =
+      effGas && effGas > 0 && priceG > 0 ? priceG / effGas : null;
+    const costKmEta =
+      effEta && effEta > 0 && priceE > 0 ? priceE / effEta : null;
+
+    let winner: "GASOLINA" | "ETANOL" | null = null;
+    if (costKmGas != null && costKmEta != null) {
+      winner = costKmGas <= costKmEta ? "GASOLINA" : "ETANOL";
+    }
+
+    return {
+      mode: "data" as const,
+      winner,
+      effGas,
+      effEta,
+      costKmGas,
+      costKmEta,
+    };
+  }, [metricsQ.data, priceGas, priceEta]);
+
+  // ===================================================================
 
   return (
-    <div className="max-w-4xl mx-auto p-6 space-y-6">
-      <h1 className="text-2xl font-semibold">Abastecimentos</h1>
+    <div className="mx-auto max-w-5xl p-6">
+      <h1 className="mb-6 text-2xl font-semibold">Abastecimentos</h1>
 
-      {/* Select de veículo (já entra com o primeiro selecionado) */}
-      <VehicleSelect value={vehicleId} onChange={setVehicleId} />
-
-      {vehicleId && (
-        <>
-          {/* Form (4 colunas: litros, preço, data, combustível) */}
-          <div className="grid md:grid-cols-4 gap-2">
-            <Input
-              placeholder="Litros"
-              inputMode="decimal"
-              step="any"
-              value={liters}
-              onChange={(e) => setLiters(e.target.value)}
-            />
-
-            <Input
-              placeholder="Preço/Litro"
-              inputMode="decimal"
-              step="any"
-              value={ppl}
-              onChange={(e) => setPpl(e.target.value)}
-            />
-
-            {/* Datepicker shadcn: mostra HOJE por padrão; ao abrir, zera pra escolher */}
-            <Popover onOpenChange={(open) => open && setDate(undefined)}>
-              <PopoverTrigger asChild>
-                <Button variant="outline" className="justify-start">
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  {date
-                    ? format(date, "dd/MM/yyyy", { locale: ptBR })
-                    : format(new Date(), "dd/MM/yyyy", { locale: ptBR })}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <Calendar
-                  mode="single"
-                  selected={date}
-                  onSelect={(d) => setDate(d || new Date())}
-                  initialFocus
-                  locale={ptBR}
-                />
-              </PopoverContent>
-            </Popover>
-
-            {/* Tipo de combustível */}
-            <Select
-              value={fuelType}
-              onValueChange={(v) => setFuelType(v as FuelType)}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Combustível" />
-              </SelectTrigger>
-              <SelectContent>
-                {fuelTypes.map((t) => (
-                  <SelectItem key={t.value} value={t.value}>
-                    {t.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* total estimado */}
-          <div className="text-sm text-muted-foreground">
-            Total estimado: <b>{brl(estimated || 0)}</b>
-          </div>
-
-          <Button
-            onClick={() => createMut.mutate()}
-            disabled={!parsedLiters || !parsedPpl || createMut.isPending}
+      {/* seletor de veículo */}
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-3">
+          <Label className="w-24">Veículo</Label>
+          <Select
+            value={vehicleId ? String(vehicleId) : undefined}
+            onValueChange={(v) => setVehicleId(Number(v))}
           >
-            {createMut.isPending ? "Salvando..." : "Adicionar"}
-          </Button>
+            <SelectTrigger className="w-[260px]">
+              <SelectValue placeholder="Selecione um veículo" />
+            </SelectTrigger>
+            <SelectContent>
+              {(vehiclesQ.data ?? []).map((v) => (
+                <SelectItem key={v.id} value={String(v.id)}>
+                  {v.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
 
-          {/* Lista */}
-          <div className="grid gap-3 mt-4">
-            {isFetching && <p>Carregando…</p>}
-            {rows?.map((r: Refueling) => (
-              <Card key={r.id} className="border border-border/70">
-                {/* Cabeçalho mais alinhado (2): data à esquerda, total + lixeira à direita */}
-                <CardHeader className="flex-row items-center justify-between space-y-0">
-                  <div className="flex items-center gap-2">
-                    <CardTitle className="text-base">{dmy(r.date)}</CardTitle>
-                    <span className="px-2 py-0.5 rounded-full bg-muted text-xs">
-                      {fuelTypes.find((f) => f.value === r.fuelType)?.label ??
-                        r.fuelType}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="destructive"
-                      size="icon"
-                      onClick={() => setToDeleteId(r.id)}
-                      title="Excluir"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </CardHeader>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">Período</span>
+          <Select value={range} onValueChange={(v) => setRange(v as any)}>
+            <SelectTrigger className="w-[170px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {CHOICES.map((c) => (
+                <SelectItem key={c.value} value={c.value}>
+                  {c.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
 
-                <CardContent className="text-sm text-muted-foreground">
-                  {/* segunda linha, conta formatada e alinhada */}
-                  <div className="flex justify-between">
-                    <span>
-                      {r.liters} L × {brl(r.pricePerLiter)}
-                    </span>
-                    <b>{brl(r.total)}</b>
+      {/* CALCULADORA: qual compensa abastecer */}
+      {vehicleId && (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Qual compensa abastecer?</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {metricsQ.isLoading ? (
+              <p className="text-sm text-muted-foreground">
+                Carregando dados do veículo…
+              </p>
+            ) : metricsQ.isError ? (
+              <p className="text-sm text-red-400">
+                Não foi possível calcular agora.
+              </p>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div>
+                    <Label>Preço atual da Gasolina (R$/L)</Label>
+                    <Input
+                      inputMode="decimal"
+                      placeholder="0,00"
+                      value={priceGas}
+                      onChange={(e) => setPriceGas(e.target.value)}
+                    />
+                    {calc?.effGas != null && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Eficiência histórica:{" "}
+                        <b>{calc.effGas.toFixed(2)} km/L</b>
+                      </p>
+                    )}
                   </div>
-                </CardContent>
-              </Card>
-            ))}
-            {!rows?.length && !isFetching && <p>Nenhum abastecimento.</p>}
-          </div>
-        </>
+
+                  <div>
+                    <Label>Preço atual do Etanol (R$/L)</Label>
+                    <Input
+                      inputMode="decimal"
+                      placeholder="0,00"
+                      value={priceEta}
+                      onChange={(e) => setPriceEta(e.target.value)}
+                    />
+                    {calc?.effEta != null && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Eficiência histórica:{" "}
+                        <b>{calc.effEta.toFixed(2)} km/L</b>
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <Separator className="my-4" />
+
+                {calc?.mode === "data" ? (
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                    <Kpi
+                      label="Custo por km (Gasolina)"
+                      value={
+                        calc.costKmGas != null ? fBRL(calc.costKmGas) : "—"
+                      }
+                    />
+                    <Kpi
+                      label="Custo por km (Etanol)"
+                      value={
+                        calc.costKmEta != null ? fBRL(calc.costKmEta) : "—"
+                      }
+                    />
+                    <div className="rounded-xl border p-3">
+                      <div className="text-sm text-muted-foreground">
+                        Recomendação
+                      </div>
+                      <div className="text-xl font-semibold">
+                        {calc.winner
+                          ? (calc.winner === "GASOLINA"
+                              ? "Gasolina"
+                              : "Etanol") + " compensa mais"
+                          : "—"}
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Baseado no seu histórico recente ({range}) e no preço
+                        digitado.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border p-3">
+                    <div className="text-sm text-muted-foreground">
+                      Recomendação (fallback)
+                    </div>
+                    <div className="text-xl font-semibold">
+                      {calc?.winner
+                        ? (calc.winner === "GASOLINA" ? "Gasolina" : "Etanol") +
+                          " compensa mais"
+                        : "—"}
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {calc?.tip}
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
+          </CardContent>
+        </Card>
       )}
 
-      {/* (3) Confirmação de exclusão */}
-      <AlertDialog
-        open={toDeleteId !== null}
-        onOpenChange={(o) => !o && setToDeleteId(null)}
-      >
+      {/* formulário de novo abastecimento */}
+      {vehicleId && (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Novo abastecimento</CardTitle>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-5">
+            <div className="md:col-span-1">
+              <Label>Litros</Label>
+              <Input
+                inputMode="decimal"
+                placeholder="0,00"
+                value={liters}
+                onChange={(e) => setLiters(e.target.value)}
+              />
+            </div>
+            <div className="md:col-span-1">
+              <Label>Preço/L</Label>
+              <Input
+                inputMode="decimal"
+                placeholder="0,00"
+                value={pricePerLiter}
+                onChange={(e) => setPricePerLiter(e.target.value)}
+              />
+            </div>
+            <div className="md:col-span-1">
+              <Label>Data</Label>
+              <Input
+                type="date"
+                value={dateStr}
+                onChange={(e) => setDateStr(e.target.value)}
+              />
+            </div>
+            <div className="md:col-span-1">
+              <Label>Combustível</Label>
+              <Select value={fuelType} onValueChange={setFuelType}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(FUEL_LABELS).map(([val, lab]) => (
+                    <SelectItem key={val} value={val}>
+                      {lab}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="md:col-span-1 flex items-end">
+              <Button
+                className="w-full"
+                onClick={addRefueling}
+                disabled={createMut.isPending}
+              >
+                {createMut.isPending ? "Salvando..." : "Adicionar"}
+              </Button>
+            </div>
+
+            <div className="md:col-span-5 text-sm text-muted-foreground">
+              Total estimado:{" "}
+              <span className="font-medium">{fBRL(estimatedTotal)}</span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* lista de abastecimentos */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Histórico</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {listQ.isLoading ? (
+            <p className="text-sm text-muted-foreground">Carregando…</p>
+          ) : listQ.data && listQ.data.length > 0 ? (
+            listQ.data
+              .slice()
+              .sort((a, b) => b.date - a.date)
+              .map((r) => (
+                <RefuelItem key={r.id} r={r} onDelete={deleteMut.mutate} />
+              ))
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Nenhum abastecimento encontrado.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function RefuelItem({
+  r,
+  onDelete,
+}: {
+  r: Refueling;
+  onDelete: (id: number) => void;
+}) {
+  const dt = new Date(r.date * 1000);
+  return (
+    <div className="flex items-center justify-between rounded-xl border p-3">
+      <div className="space-y-1">
+        <div className="text-sm text-muted-foreground">
+          {String(dt.getDate()).padStart(2, "0")}/
+          {String(dt.getMonth() + 1).padStart(2, "0")}/{dt.getFullYear()}
+        </div>
+        <div className="text-sm">
+          {r.liters.toFixed(2)} L × {fBRL(r.pricePerLiter)} ={" "}
+          <span className="font-medium">{fBRL(r.total)}</span>
+        </div>
+        {r.fuelType && (
+          <div className="text-xs text-muted-foreground">
+            Combustível: {FUEL_LABELS[r.fuelType] ?? r.fuelType}
+          </div>
+        )}
+      </div>
+
+      <AlertDialog>
+        <AlertDialogTrigger asChild>
+          <Button variant="destructive" size="icon">
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </AlertDialogTrigger>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Excluir abastecimento?</AlertDialogTitle>
             <AlertDialogDescription>
-              Essa ação não poderá ser desfeita. O registro será removido
-              definitivamente.
+              Esta ação não poderá ser desfeita.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => toDeleteId && deleteMut.mutate(toDeleteId)}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
+            <AlertDialogAction onClick={() => onDelete(r.id)}>
               Excluir
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </div>
+  );
+}
+
+function Kpi({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border p-3">
+      <div className="text-sm text-muted-foreground">{label}</div>
+      <div className="text-xl font-semibold">{value}</div>
     </div>
   );
 }

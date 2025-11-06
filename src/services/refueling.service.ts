@@ -17,6 +17,21 @@ export type Refueling = {
   fuelType: FuelType;
 };
 
+export type RefuelingMetrics = {
+  vehicleId: number;
+  rangeDays: number;
+  from: number;
+  to: number;
+  fillups: number;
+  liters: number;
+  fuelCost: number;
+  avgPricePerLiter: number;
+  byFuelType: Record<string, { liters: number; cost: number }>;
+  kmDriven: number | null;
+  avgKmPerL: number | null;
+  costPerKm: number | null;
+};
+
 export async function listRefuelings(vehicleId: number): Promise<Refueling[]> {
   const { data } = await api.get(`/api/refuelings/${vehicleId}`);
   return data;
@@ -35,4 +50,14 @@ export async function createRefueling(input: {
 
 export async function deleteRefueling(id: number) {
   await api.delete(`/api/refuelings/${id}`);
+}
+
+export async function getRefuelingMetrics(
+  vehicleId: number,
+  range: "30d" | "60d" | "90d" | "180d" | "365d" = "90d"
+): Promise<RefuelingMetrics> {
+  const { data } = await api.get(`/api/refuelings/${vehicleId}/metrics`, {
+    params: { range },
+  });
+  return data as RefuelingMetrics;
 }

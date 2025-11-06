@@ -2,8 +2,9 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import { db, schema } from "./db";
-import { eq, and, desc, gte, lt } from "drizzle-orm";
+import { eq, and, desc, gte, lt, lte, sql } from "drizzle-orm";
 import { requireAuth } from "./auth";
+import { refuelings, maintenances, vehicles } from "./schema";
 
 const app = express();
 
@@ -13,6 +14,14 @@ const toNumberBR = (v: any) => {
   if (typeof v === "string") return Number(v.replace(",", "."));
   return Number(v);
 };
+
+function parseRange(range?: string) {
+  const def = 90; // padrão: 90 dias
+  if (!range) return def;
+  const m = range.match(/^(\d+)\s*d$/i);
+  if (!m) return def;
+  return Math.max(1, Number(m[1]));
+}
 
 // Converte "YYYY-MM-DD" (ou Date) para epoch (segundos) SEM deslocar 1 dia
 const toEpochLocal = (v: string | Date) => {
@@ -48,6 +57,31 @@ const startOfNextMonthEpoch = () => {
     new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime() / 1000
   );
 };
+
+// ADD: pega a manutenção mais recente COM mileage <= timestamp
+async function getMaintenanceMileageAtOrBefore(vehicleId: number, ts: number) {
+  const rows = await db
+    .select({
+      mileage: maintenances.mileage,
+      date: maintenances.date, // inteiro epoch
+    })
+    .from(maintenances)
+    .where(
+      and(
+        eq(maintenances.vehicleId, vehicleId),
+        lte(maintenances.date, ts),
+        // mileage não nulo
+        sql`mileage IS NOT NULL`
+      )
+    )
+    .orderBy(desc(maintenances.date))
+    .limit(1);
+
+  if (rows.length && rows[0].mileage != null) {
+    return { mileage: Number(rows[0].mileage), at: Number(rows[0].date) };
+  }
+  return null;
+}
 
 // GET /api/dashboard — resumo para o Home
 app.get("/api/dashboard", async (req, res) => {
@@ -436,6 +470,110 @@ app.get("/api/costs/summary", async (req, res) => {
     .map(([periodKey, total]) => ({ period: periodKey, total }));
 
   res.json({ period, vehicleId: byVehicle ?? null, summary });
+});
+
+app.get("/api/refuelings/:vehicleId/metrics", async (req, res) => {
+  try {
+    const vehicleId = Number(req.params.vehicleId);
+    if (!vehicleId)
+      return res.status(400).json({ error: "vehicleId inválido" });
+
+    const rangeDays = parseRange(String(req.query.range || "90d"));
+    const nowSec = Math.floor(Date.now() / 1000);
+    const fromSec = nowSec - rangeDays * 24 * 60 * 60;
+
+    // 1) Somatórios de combustível no período
+    const fuels = await db
+      .select({
+        id: refuelings.id,
+        liters: refuelings.liters,
+        pricePerLiter: refuelings.pricePerLiter,
+        total: refuelings.total, // pode ser null; se for, calculamos
+        date: refuelings.date,
+        fuelType: refuelings.fuelType,
+      })
+      .from(refuelings)
+      .where(
+        and(
+          eq(refuelings.vehicleId, vehicleId),
+          gte(refuelings.date, fromSec),
+          lte(refuelings.date, nowSec)
+        )
+      )
+      .orderBy(desc(refuelings.date));
+
+    const fillups = fuels.length;
+    const liters = fuels.reduce((acc, r) => acc + Number(r.liters || 0), 0);
+    const fuelCost = fuels.reduce((acc, r) => {
+      const t =
+        r.total != null
+          ? Number(r.total)
+          : Number(r.liters || 0) * Number(r.pricePerLiter || 0);
+      return acc + t;
+    }, 0);
+    const avgPricePerLiter = liters > 0 ? fuelCost / liters : 0;
+
+    // breakdown por tipo (se você usa "GASOLINA"/"ETANOL" etc.)
+    const byFuelType: Record<string, { liters: number; cost: number }> = {};
+    for (const r of fuels) {
+      const type = r.fuelType || "DESCONHECIDO";
+      if (!byFuelType[type]) byFuelType[type] = { liters: 0, cost: 0 };
+      const t =
+        r.total != null
+          ? Number(r.total)
+          : Number(r.liters || 0) * Number(r.pricePerLiter || 0);
+      byFuelType[type].liters += Number(r.liters || 0);
+      byFuelType[type].cost += t;
+    }
+
+    // 2) Quilometragem rodada no período
+    // Estratégia simples e robusta (sem nova tabela): usa mileage das MANUTENÇÕES
+    // Pega a manutenção mais recente <= now e a mais recente <= from.
+    const endMileage = await getMaintenanceMileageAtOrBefore(vehicleId, nowSec);
+    const startMileage = await getMaintenanceMileageAtOrBefore(
+      vehicleId,
+      fromSec
+    );
+
+    let kmDriven: number | null = null;
+    if (endMileage && startMileage) {
+      kmDriven = Math.max(0, endMileage.mileage - startMileage.mileage);
+    } else {
+      // fallback simples (opcional): tenta usar vehicles.mileage como "fim"
+      const v = await db
+        .select({ mileage: vehicles.mileage })
+        .from(vehicles)
+        .where(eq(vehicles.id, vehicleId))
+        .limit(1);
+
+      if (v.length && v[0].mileage != null && startMileage) {
+        kmDriven = Math.max(0, Number(v[0].mileage) - startMileage.mileage);
+      }
+    }
+
+    // 3) Derivados
+    const avgKmPerL = kmDriven != null && liters > 0 ? kmDriven / liters : null;
+    const costPerKm =
+      kmDriven != null && kmDriven > 0 ? fuelCost / kmDriven : null;
+
+    return res.json({
+      vehicleId,
+      rangeDays,
+      from: fromSec,
+      to: nowSec,
+      fillups,
+      liters,
+      fuelCost,
+      avgPricePerLiter,
+      byFuelType,
+      kmDriven,
+      avgKmPerL,
+      costPerKm,
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Erro ao calcular métricas" });
+  }
 });
 
 const port = Number(process.env.PORT || 3333);

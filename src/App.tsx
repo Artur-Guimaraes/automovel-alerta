@@ -10,6 +10,7 @@ import Refueling from "./pages/refueling";
 import Expenses from "./pages/expenses";
 import { Toaster } from "sonner";
 import SignUp from "./pages/auth/sign-up";
+import Comparator from "./pages/comparator";
 
 export function App() {
   return (
@@ -23,6 +24,7 @@ export function App() {
           <Route path="maintenance" element={<Maintenance />} />
           <Route path="refueling" element={<Refueling />} />
           <Route path="expenses" element={<Expenses />} />
+          <Route path="comparator" element={<Comparator />} />
         </Route>
 
         <Route element={<AuthLayout />}>

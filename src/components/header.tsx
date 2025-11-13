@@ -7,21 +7,22 @@ import {
   Fuel,
   Receipt,
   GalleryHorizontalEnd,
+  ListChecks,
   ChevronDown,
 } from "lucide-react";
 import { Separator } from "./ui/separator";
 import { ThemeToggle } from "./theme/theme-toggle";
 import { AccountMenu } from "./account-menu";
-import { NavLink } from "react-router";
+import { NavLink } from "react-router-dom";
 
-// shadcn/ui – Dropdown
+// shadcn/ui
 import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 
 // Supabase
@@ -122,7 +123,7 @@ export function Header() {
               Gastos
             </NavLink>
 
-            {/* ===== Dropdown "Outros" ===== */}
+            {/* --- Dropdown "Outros" (shadcn) --- */}
             <DropdownMenu>
               <DropdownMenuTrigger className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground focus:outline-none">
                 Outros
@@ -130,6 +131,7 @@ export function Header() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-56">
                 <DropdownMenuLabel>Ferramentas</DropdownMenuLabel>
+
                 <DropdownMenuItem asChild>
                   <NavLink to="/comparator" className="flex items-center gap-2">
                     <GalleryHorizontalEnd className="h-4 w-4" />
@@ -137,21 +139,22 @@ export function Header() {
                   </NavLink>
                 </DropdownMenuItem>
 
-                {/* Se quiser, adicione novas entradas aqui */}
-                {/* <DropdownMenuItem asChild>
-                  <NavLink to="/others/fipe" className="flex items-center gap-2">
-                    <TrendingUp className="h-4 w-4" />
-                    Tabela FIPE
+                <DropdownMenuItem asChild>
+                  <NavLink to="/checklist" className="flex items-center gap-2">
+                    <ListChecks className="h-4 w-4" />
+                    Checklist de viagem
                   </NavLink>
-                </DropdownMenuItem> */}
+                </DropdownMenuItem>
+
+                <DropdownMenuItem asChild>
+                  <NavLink to="/fines" className="flex items-center gap-2">
+                    <Receipt className="h-4 w-4" />
+                    Multas
+                  </NavLink>
+                </DropdownMenuItem>
 
                 <DropdownMenuSeparator />
-
-                {/* Se futuramente quiser uma sessão "Em breve" */}
-                {/* <DropdownMenuLabel className="text-xs text-muted-foreground">
-                  Em breve
-                </DropdownMenuLabel>
-                <DropdownMenuItem disabled>Relatórios</DropdownMenuItem> */}
+                {/* Espaço para futuras páginas */}
               </DropdownMenuContent>
             </DropdownMenu>
           </nav>

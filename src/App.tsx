@@ -11,6 +11,8 @@ import Expenses from "./pages/expenses";
 import { Toaster } from "sonner";
 import SignUp from "./pages/auth/sign-up";
 import Comparator from "./pages/comparator";
+import TripChecklist from "./pages/trip-checklist";
+import Fines from "./pages/fines";
 
 export function App() {
   return (
@@ -25,6 +27,8 @@ export function App() {
           <Route path="refueling" element={<Refueling />} />
           <Route path="expenses" element={<Expenses />} />
           <Route path="comparator" element={<Comparator />} />
+          <Route path="checklist" element={<TripChecklist />} />
+          <Route path="fines" element={<Fines />} />
         </Route>
 
         <Route element={<AuthLayout />}>

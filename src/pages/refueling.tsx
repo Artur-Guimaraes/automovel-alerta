@@ -39,10 +39,7 @@ import {
 const fBRL = (n: number) =>
   n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
-type Vehicle = {
-  id: number;
-  name: string;
-};
+type Vehicle = { id: number; name: string };
 
 const FUEL_LABELS: Record<string, string> = {
   GASOLINA: "Gasolina",
@@ -58,6 +55,26 @@ const CHOICES = [
   { value: "365d", label: "Últimos 12 meses" },
 ] as const;
 
+type CalcResult =
+  | {
+      mode: "data";
+      winner: "GASOLINA" | "ETANOL" | null;
+      effGas: number | null;
+      effEta: number | null;
+      costKmGas: number | null;
+      costKmEta: number | null;
+      tip?: never;
+    }
+  | {
+      mode: "fallback";
+      winner: "GASOLINA" | "ETANOL" | null;
+      tip: string;
+      effGas: null;
+      effEta: null;
+      costKmGas: null;
+      costKmEta: null;
+    };
+
 export default function RefuelingPage() {
   const qc = useQueryClient();
 
@@ -68,6 +85,7 @@ export default function RefuelingPage() {
   const [liters, setLiters] = useState<string>("");
   const [pricePerLiter, setPricePerLiter] = useState<string>("");
   const [fuelType, setFuelType] = useState<string>("GASOLINA");
+  const [mileage, setMileage] = useState<string>(""); // <<< NOVO (obrigatório)
   const [dateStr, setDateStr] = useState<string>(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
@@ -115,6 +133,7 @@ export default function RefuelingPage() {
       setLiters("");
       setPricePerLiter("");
       setFuelType("GASOLINA");
+      setMileage("");
       const now = new Date();
       setDateStr(
         `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
@@ -141,65 +160,66 @@ export default function RefuelingPage() {
     return l * p;
   }, [liters, pricePerLiter]);
 
-  // ação
+  // helpers de máscara simples
+  const kmMask = (s: string) => {
+    const digits = s.replace(/\D/g, "");
+    const n = digits ? parseInt(digits, 10) : 0;
+    return n.toLocaleString("pt-BR");
+  };
+
   function addRefueling() {
     if (!vehicleId) return;
+    const kmNum = Number(mileage.replace(/\./g, "")); // tira separadores
+    if (!kmNum && kmNum !== 0) return;
+
     createMut.mutate({
       vehicleId,
       liters,
       pricePerLiter,
       date: dateStr,
       fuelType,
+      mileage: kmNum, // <<< manda km obrigatório
     });
   }
 
   // ================== CALCULADORA GASOLINA x ETANOL ==================
-
-  // preços digitáveis pelo usuário (default = preço médio do período se houver)
   const [priceGas, setPriceGas] = useState<string>("");
   const [priceEta, setPriceEta] = useState<string>("");
+  const [result, setResult] = useState<CalcResult | null>(null);
 
-  // sempre que métricas mudarem, atualizar defaults dos preços
   useEffect(() => {
-    if (!metricsQ.data) return;
+    if (!metricsQ.data) {
+      setResult(null);
+      return;
+    }
     const { byFuelType } = metricsQ.data;
     const g = byFuelType["GASOLINA"] || byFuelType["GASOLINA_ADITIVADA"];
     const e = byFuelType["ETANOL"];
+    if (g && g.liters > 0)
+      setPriceGas((g.cost / g.liters).toFixed(2).replace(".", ","));
+    else setPriceGas("");
+    if (e && e.liters > 0)
+      setPriceEta((e.cost / e.liters).toFixed(2).replace(".", ","));
+    else setPriceEta("");
+    setResult(null);
+  }, [metricsQ.data, vehicleId, range]);
 
-    if (g && g.liters > 0) {
-      const avgG = g.cost / g.liters;
-      setPriceGas(avgG.toFixed(2).replace(".", ","));
-    }
-    if (e && e.liters > 0) {
-      const avgE = e.cost / e.liters;
-      setPriceEta(avgE.toFixed(2).replace(".", ","));
-    }
-  }, [metricsQ.data]);
+  const toNum = (s: string) =>
+    Number(
+      String(s || "0")
+        .replace(/\./g, "")
+        .replace(",", ".")
+    );
 
-  // cálculo baseado no histórico
-  const calc = useMemo(() => {
+  const handleCalculate = () => {
     const m = metricsQ.data;
-    if (!m) return null;
-
-    const totalLiters = m.liters;
-    const km = m.kmDriven ?? null;
-
-    const g = m.byFuelType["GASOLINA"] || m.byFuelType["GASOLINA_ADITIVADA"];
-    const e = m.byFuelType["ETANOL"];
-
-    const toNum = (s: string) =>
-      Number(
-        String(s || "0")
-          .replace(/\./g, "")
-          .replace(",", ".")
-      );
+    if (!m) return setResult(null);
 
     const priceG = toNum(priceGas);
     const priceE = toNum(priceEta);
 
-    // Se não temos quilômetros (usuário ainda não registrou manutenção com km),
-    // aplicamos fallback da “regra dos 70%”.
-    if (km == null || km <= 0 || totalLiters <= 0) {
+    // se não houver km calculado (a API já faz com mileage), cai no fallback
+    if (m.kmDriven == null || m.kmDriven <= 0 || m.liters <= 0) {
       const ratio = priceE > 0 && priceG > 0 ? priceE / priceG : NaN;
       const tip =
         isFinite(ratio) && !isNaN(ratio)
@@ -214,55 +234,41 @@ export default function RefuelingPage() {
             : "GASOLINA"
           : null;
 
-      return {
-        mode: "fallback" as const,
-        tip,
+      setResult({
+        mode: "fallback",
         winner,
-        costKmGas: null,
-        costKmEta: null,
+        tip,
         effGas: null,
         effEta: null,
-      };
+        costKmGas: null,
+        costKmEta: null,
+      });
+      return;
     }
 
-    // km por tipo (proporcional aos litros de cada)
-    const litersG = g?.liters ?? 0;
-    const costG = g?.cost ?? 0;
-    const litersE = e?.liters ?? 0;
-    const costE = e?.cost ?? 0;
+    // eficiência por tipo não vem detalhada — mostramos apenas custo/km com preços informados
+    // usando média geral do período (kmDriven / liters)
+    const effGeral = m.avgKmPerL ?? null;
 
-    // evita divisão por zero
-    const shareG = totalLiters > 0 ? litersG / totalLiters : 0;
-    const shareE = totalLiters > 0 ? litersE / totalLiters : 0;
-
-    const kmG = km * shareG;
-    const kmE = km * shareE;
-
-    // eficiência por tipo do histórico (km/L)
-    const effGas = litersG > 0 ? kmG / litersG : null;
-    const effEta = litersE > 0 ? kmE / litersE : null;
-
-    // custo por km estimado usando o preço digitado
     const costKmGas =
-      effGas && effGas > 0 && priceG > 0 ? priceG / effGas : null;
+      effGeral && effGeral > 0 && priceG > 0 ? priceG / effGeral : null;
     const costKmEta =
-      effEta && effEta > 0 && priceE > 0 ? priceE / effEta : null;
+      effGeral && effGeral > 0 && priceE > 0 ? priceE / effGeral : null;
 
     let winner: "GASOLINA" | "ETANOL" | null = null;
     if (costKmGas != null && costKmEta != null) {
       winner = costKmGas <= costKmEta ? "GASOLINA" : "ETANOL";
     }
 
-    return {
-      mode: "data" as const,
+    setResult({
+      mode: "data",
       winner,
-      effGas,
-      effEta,
+      effGas: effGeral,
+      effEta: effGeral,
       costKmGas,
       costKmEta,
-    };
-  }, [metricsQ.data, priceGas, priceEta]);
-
+    });
+  };
   // ===================================================================
 
   return (
@@ -307,7 +313,7 @@ export default function RefuelingPage() {
         </div>
       </div>
 
-      {/* CALCULADORA: qual compensa abastecer */}
+      {/* CALCULADORA */}
       {vehicleId && (
         <Card className="mb-6">
           <CardHeader>
@@ -320,7 +326,7 @@ export default function RefuelingPage() {
               </p>
             ) : metricsQ.isError ? (
               <p className="text-sm text-red-400">
-                Não foi possível calcular agora.
+                Não foi possível obter as métricas agora.
               </p>
             ) : (
               <>
@@ -333,12 +339,6 @@ export default function RefuelingPage() {
                       value={priceGas}
                       onChange={(e) => setPriceGas(e.target.value)}
                     />
-                    {calc?.effGas != null && (
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Eficiência histórica:{" "}
-                        <b>{calc.effGas.toFixed(2)} km/L</b>
-                      </p>
-                    )}
                   </div>
 
                   <div>
@@ -349,29 +349,34 @@ export default function RefuelingPage() {
                       value={priceEta}
                       onChange={(e) => setPriceEta(e.target.value)}
                     />
-                    {calc?.effEta != null && (
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Eficiência histórica:{" "}
-                        <b>{calc.effEta.toFixed(2)} km/L</b>
-                      </p>
-                    )}
                   </div>
+                </div>
+
+                <div className="mt-3">
+                  <Button onClick={handleCalculate} disabled={!vehicleId}>
+                    Calcular
+                  </Button>
                 </div>
 
                 <Separator className="my-4" />
 
-                {calc?.mode === "data" ? (
+                {!result ? (
+                  <div className="rounded-xl border p-3 text-sm text-muted-foreground">
+                    Preencha os preços e clique em <b>Calcular</b> para ver a
+                    recomendação baseada no seu histórico recente ({range}).
+                  </div>
+                ) : result.mode === "data" ? (
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                     <Kpi
                       label="Custo por km (Gasolina)"
                       value={
-                        calc.costKmGas != null ? fBRL(calc.costKmGas) : "—"
+                        result.costKmGas != null ? fBRL(result.costKmGas) : "—"
                       }
                     />
                     <Kpi
                       label="Custo por km (Etanol)"
                       value={
-                        calc.costKmEta != null ? fBRL(calc.costKmEta) : "—"
+                        result.costKmEta != null ? fBRL(result.costKmEta) : "—"
                       }
                     />
                     <div className="rounded-xl border p-3">
@@ -379,15 +384,15 @@ export default function RefuelingPage() {
                         Recomendação
                       </div>
                       <div className="text-xl font-semibold">
-                        {calc.winner
-                          ? (calc.winner === "GASOLINA"
+                        {result.winner
+                          ? (result.winner === "GASOLINA"
                               ? "Gasolina"
                               : "Etanol") + " compensa mais"
                           : "—"}
                       </div>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        Baseado no seu histórico recente ({range}) e no preço
-                        digitado.
+                        Baseado no seu histórico recente ({range}) e nos preços
+                        informados.
                       </p>
                     </div>
                   </div>
@@ -397,13 +402,14 @@ export default function RefuelingPage() {
                       Recomendação (fallback)
                     </div>
                     <div className="text-xl font-semibold">
-                      {calc?.winner
-                        ? (calc.winner === "GASOLINA" ? "Gasolina" : "Etanol") +
-                          " compensa mais"
+                      {result.winner
+                        ? (result.winner === "GASOLINA"
+                            ? "Gasolina"
+                            : "Etanol") + " compensa mais"
                         : "—"}
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {calc?.tip}
+                      {result.tip}
                     </p>
                   </div>
                 )}
@@ -419,7 +425,7 @@ export default function RefuelingPage() {
           <CardHeader>
             <CardTitle>Novo abastecimento</CardTitle>
           </CardHeader>
-          <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-5">
+          <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-6">
             <div className="md:col-span-1">
               <Label>Litros</Label>
               <Input
@@ -461,17 +467,40 @@ export default function RefuelingPage() {
                 </SelectContent>
               </Select>
             </div>
+
+            {/* NOVO: quilometragem obrigatória, com máscara simples e sufixo visual */}
+            <div className="md:col-span-1">
+              <Label>Quilometragem</Label>
+              <div className="relative">
+                <Input
+                  inputMode="numeric"
+                  placeholder="0"
+                  value={mileage}
+                  onChange={(e) => setMileage(kmMask(e.target.value))}
+                />
+                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                  km
+                </span>
+              </div>
+            </div>
+
             <div className="md:col-span-1 flex items-end">
               <Button
                 className="w-full"
                 onClick={addRefueling}
-                disabled={createMut.isPending}
+                disabled={
+                  createMut.isPending ||
+                  !mileage.trim() ||
+                  !liters.trim() ||
+                  !pricePerLiter.trim()
+                }
+                title={!mileage.trim() ? "Informe a quilometragem" : ""}
               >
                 {createMut.isPending ? "Salvando..." : "Adicionar"}
               </Button>
             </div>
 
-            <div className="md:col-span-5 text-sm text-muted-foreground">
+            <div className="md:col-span-6 text-sm text-muted-foreground">
               Total estimado:{" "}
               <span className="font-medium">{fBRL(estimatedTotal)}</span>
             </div>
@@ -524,6 +553,11 @@ function RefuelItem({
           {r.liters.toFixed(2)} L × {fBRL(r.pricePerLiter)} ={" "}
           <span className="font-medium">{fBRL(r.total)}</span>
         </div>
+        {r.mileage != null && (
+          <div className="text-xs text-muted-foreground">
+            Odômetro: {Number(r.mileage).toLocaleString("pt-BR")} km
+          </div>
+        )}
         {r.fuelType && (
           <div className="text-xs text-muted-foreground">
             Combustível: {FUEL_LABELS[r.fuelType] ?? r.fuelType}

@@ -4,6 +4,10 @@ import { supabase } from "@/supabaseClient";
 const baseURL = import.meta.env.VITE_API_URL ?? "http://localhost:3333";
 export const api = axios.create({ baseURL });
 
+const { data } = await supabase.auth.getSession();
+const userId = data.session?.user.id; // <- aqui está
+console.log("userId:", userId);
+
 api.interceptors.request.use(async (config) => {
   const {
     data: { session },

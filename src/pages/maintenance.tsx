@@ -13,7 +13,6 @@ import { supabase } from "@/supabaseClient";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -40,7 +39,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-import { CalendarIcon, Pencil, Trash2 } from "lucide-react";
+import { CalendarIcon, Pencil, Trash2, ChevronDown } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
@@ -53,15 +52,36 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-// util
+/* ======================= Helpers de formatação/máscara ======================= */
 const brl = (n: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
-    n
+    isFinite(n) ? n : 0
   );
-const dmy = (epoch: number) =>
-  new Date(epoch * 1000).toLocaleDateString("pt-BR");
-const toNumberBR = (v: string) => Number((v || "").replace(",", "."));
 
+const dmy = (epochSec: number) =>
+  new Date(epochSec * 1000).toLocaleDateString("pt-BR");
+
+const onlyDigits = (s: string) => s.replace(/\D/g, "");
+
+const maskBRL = (raw: string) => {
+  // aceita só dígitos, trata como centavos
+  const digits = onlyDigits(raw);
+  const value = digits ? Number(digits) / 100 : 0;
+  const text = value.toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
+  return { value, text };
+};
+
+const maskKM = (raw: string) => {
+  const digits = onlyDigits(raw);
+  const num = digits ? parseInt(digits, 10) : 0;
+  const text = `${num.toLocaleString("pt-BR")} km`;
+  return { value: num, text };
+};
+
+/* ================================= Componente ================================= */
 export function Maintenance() {
   const { theme } = useTheme();
   const isDarkMode = theme === "dark";
@@ -78,7 +98,6 @@ export function Maintenance() {
   });
   const [vehicleId, setVehicleId] = useState<number | undefined>(undefined);
 
-  // autosseleciona 1º veículo
   useEffect(() => {
     if (!vehicleId && vehicles?.length) setVehicleId(vehicles[0].id);
   }, [vehicles, vehicleId]);
@@ -107,36 +126,73 @@ export function Maintenance() {
     enabled: !!vehicleId,
   });
 
-  // ===== form de criação
+  // ===== criação com máscaras
   const [title, setTitle] = useState("");
-  const [cost, setCost] = useState("");
+  const [costText, setCostText] = useState(""); // máscara BRL
+  const [costValue, setCostValue] = useState(0); // número
   const [date, setDate] = useState<Date | undefined>(new Date());
   const [notes, setNotes] = useState("");
-  const [mileage, setMileage] = useState("");
+  const [mileageText, setMileageText] = useState(""); // máscara KM
+  const [mileageValue, setMileageValue] = useState<number | undefined>(
+    undefined
+  );
 
   const createMut = useMutation({
     mutationFn: () =>
       createMaintenance({
         vehicleId: vehicleId as number,
         title: title.trim(),
-        cost: toNumberBR(cost),
+        cost: costValue,
         date: date ?? new Date(),
         notes: notes.trim() || undefined,
-        mileage: mileage ? toNumberBR(mileage) : undefined,
+        mileage: mileageValue,
       }),
     onSuccess: () => {
+      // limpa
       setTitle("");
-      setCost("");
+      setCostText("");
+      setCostValue(0);
       setDate(new Date());
       setNotes("");
-      setMileage("");
+      setMileageText("");
+      setMileageValue(undefined);
       refetch();
     },
   });
 
-  // ===== editar/excluir (AlertDialog)
+  // ===== editar/excluir
   const [editRow, setEditRow] = useState<Row | null>(null);
   const [delRow, setDelRow] = useState<Row | null>(null);
+
+  // estados locais do modal de edição (com máscara)
+  const [editTitle, setEditTitle] = useState("");
+  const [editCostText, setEditCostText] = useState("");
+  const [editCostValue, setEditCostValue] = useState(0);
+  const [editMileageText, setEditMileageText] = useState("");
+  const [editMileageValue, setEditMileageValue] = useState<number | undefined>(
+    undefined
+  );
+  const [editNotes, setEditNotes] = useState("");
+  const [editDateSec, setEditDateSec] = useState<number>(0); // segundos epoch
+  const [showCalendar, setShowCalendar] = useState(false); // dropdown inline no modal
+
+  // ao abrir o modal, popular estados locais
+  useEffect(() => {
+    if (editRow) {
+      setEditTitle(editRow.title);
+      setEditCostText(brl(editRow.cost));
+      setEditCostValue(editRow.cost);
+      const kmTxt =
+        editRow.mileage != null
+          ? `${editRow.mileage.toLocaleString("pt-BR")} km`
+          : "";
+      setEditMileageText(kmTxt);
+      setEditMileageValue(editRow.mileage ?? undefined);
+      setEditNotes(editRow.notes ?? "");
+      setEditDateSec(editRow.date); // segundos vindos do backend
+      setShowCalendar(false);
+    }
+  }, [editRow]);
 
   const updateMut = useMutation({
     mutationFn: (args: { id: number; patch: any }) =>
@@ -198,7 +254,6 @@ export function Maintenance() {
           </SelectContent>
         </Select>
 
-        {/* (3) bullet com proprietário */}
         {selectedVehicle && (
           <span className="text-sm text-muted-foreground flex items-center gap-2">
             <span className="h-1.5 w-1.5 rounded-full bg-primary inline-block" />
@@ -221,14 +276,19 @@ export function Maintenance() {
               value={title}
               onChange={(e) => setTitle(e.target.value)}
             />
+
             <Input
               placeholder="Custo"
-              inputMode="decimal"
-              step="any"
-              value={cost}
-              onChange={(e) => setCost(e.target.value)}
+              inputMode="numeric"
+              value={costText}
+              onChange={(e) => {
+                const { value, text } = maskBRL(e.target.value);
+                setCostText(text);
+                setCostValue(value);
+              }}
             />
-            <Popover onOpenChange={(open) => open && setDate(undefined)}>
+
+            <Popover>
               <PopoverTrigger asChild>
                 <Button variant="outline" className="justify-start">
                   <CalendarIcon className="mr-2 h-4 w-4" />
@@ -247,21 +307,28 @@ export function Maintenance() {
                 />
               </PopoverContent>
             </Popover>
+
             <Input
-              placeholder="Quilometragem (km)"
+              placeholder="Quilometragem"
               inputMode="numeric"
-              value={mileage}
-              onChange={(e) => setMileage(e.target.value)}
+              value={mileageText}
+              onChange={(e) => {
+                const { value, text } = maskKM(e.target.value);
+                setMileageText(text);
+                setMileageValue(value);
+              }}
             />
           </div>
+
           <Textarea
             placeholder="Observações (opcional)"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
           />
+
           <Button
             onClick={() => createMut.mutate()}
-            disabled={!title.trim() || !toNumberBR(cost) || createMut.isPending}
+            disabled={!title.trim() || createMut.isPending}
           >
             {createMut.isPending ? "Salvando..." : "Adicionar"}
           </Button>
@@ -366,50 +433,70 @@ export function Maintenance() {
           </AlertDialogHeader>
 
           {editRow && (
-            <div className="space-y-2">
+            <div className="space-y-3">
               <Input
-                defaultValue={editRow.title}
-                onChange={(e) => (editRow.title = e.target.value)}
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
               />
+
               <Input
-                defaultValue={String(editRow.cost)}
-                inputMode="decimal"
-                step="any"
-                onChange={(e) => (editRow.cost = toNumberBR(e.target.value))}
+                value={editCostText}
+                inputMode="numeric"
+                onChange={(e) => {
+                  const { value, text } = maskBRL(e.target.value);
+                  setEditCostText(text);
+                  setEditCostValue(value);
+                }}
               />
-              <div className="flex gap-2">
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="justify-start">
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {dmy(editRow.date)}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
+
+              {/* Datepicker inline (sem portal) para funcionar dentro do Dialog */}
+              <div className="relative">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full justify-between"
+                  onClick={() => setShowCalendar((v) => !v)}
+                >
+                  <span className="flex items-center gap-2">
+                    <CalendarIcon className="h-4 w-4" />
+                    {format(new Date(editDateSec * 1000), "dd/MM/yyyy", {
+                      locale: ptBR,
+                    })}
+                  </span>
+                  <ChevronDown className="h-4 w-4" />
+                </Button>
+                {showCalendar && (
+                  <div className="absolute z-50 mt-2 rounded-md border bg-popover p-2 shadow-lg">
                     <Calendar
                       mode="single"
-                      selected={new Date(editRow.date * 1000)}
+                      selected={new Date(editDateSec * 1000)}
                       onSelect={(d) => {
-                        if (d) editRow.date = Math.floor(d.getTime() / 1000);
+                        const chosen = d ?? new Date(editDateSec * 1000);
+                        setEditDateSec(Math.floor(chosen.getTime() / 1000));
+                        setShowCalendar(false);
                       }}
-                      initialFocus
                       locale={ptBR}
+                      initialFocus
                     />
-                  </PopoverContent>
-                </Popover>
-                <Input
-                  placeholder="Quilometragem (km)"
-                  defaultValue={String(editRow.mileage ?? "")}
-                  inputMode="numeric"
-                  onChange={(e) =>
-                    (editRow.mileage = toNumberBR(e.target.value))
-                  }
-                />
+                  </div>
+                )}
               </div>
+
+              <Input
+                placeholder="Quilometragem"
+                value={editMileageText}
+                inputMode="numeric"
+                onChange={(e) => {
+                  const { value, text } = maskKM(e.target.value);
+                  setEditMileageText(text);
+                  setEditMileageValue(value);
+                }}
+              />
+
               <Textarea
                 placeholder="Observações"
-                defaultValue={editRow.notes ?? ""}
-                onChange={(e) => (editRow.notes = e.target.value)}
+                value={editNotes}
+                onChange={(e) => setEditNotes(e.target.value)}
               />
             </div>
           )}
@@ -420,13 +507,14 @@ export function Maintenance() {
               onClick={() => {
                 if (!editRow) return;
                 const patch: any = {
-                  title: editRow.title,
-                  cost: editRow.cost,
-                  notes: editRow.notes ?? null,
-                  mileage: editRow.mileage ?? 0,
+                  title: editTitle.trim(),
+                  cost: editCostValue,
+                  notes: editNotes.trim() || null,
+                  mileage:
+                    editMileageValue !== undefined ? editMileageValue : 0,
+                  // IMPORTANTE: envie Date real para o backend
+                  date: new Date(editDateSec * 1000),
                 };
-                // se o usuário trocou a data via calendário, já salvamos epoch direto
-                if (typeof editRow.date === "number") patch.date = editRow.date;
                 updateMut.mutate({ id: editRow.id, patch });
               }}
             >

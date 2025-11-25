@@ -34,26 +34,29 @@ const formatKm = (n?: number) =>
 const maskKmInput = (raw: string) => {
   const digits = onlyDigits(raw);
   const num = digits ? parseInt(digits, 10) : 0;
-  return { num, text: formatKm(num) };
+  // adiciona separador de milhar
+  const text = digits === "" ? "" : `${num.toLocaleString("pt-BR")} km`;
+  return { num, text };
 };
 const km = (n: number) => `${n.toLocaleString("pt-BR")} km`;
 
 /* ------------------------------ Zod schema ----------------------------- */
+// Aceita letras (com acento), números e espaço
+const textNoSymbols = z
+  .string()
+  .min(1, "Campo obrigatório")
+  .max(30, "Máximo de 30 caracteres")
+  .regex(/^[\p{L}\p{N}\s]+$/u, "Não use caracteres especiais");
+
 const vehicleSchema = z.object({
   id: z.number().optional(),
-  name: z
-    .string()
-    .min(1, "Informe um nome")
-    .max(30, "Nome deve ter no máximo 30 caracteres")
-    .regex(/^[a-zA-Z0-9\s]+$/, "Nome não pode conter caracteres especiais"),
-  model: z
-    .string()
-    .min(1, "Informe o modelo")
-    .max(30, "Modelo deve ter no máximo 30 caracteres")
-    .regex(/^[a-zA-Z0-9\s]+$/, "Modelo não pode conter caracteres especiais"),
+  name: textNoSymbols,
+  model: textNoSymbols,
   plate: z
     .string()
-    .transform((v) => v.toUpperCase().replace("-", ""))
+    .transform(
+      (v) => v.toUpperCase().replace(/[^A-Z0-9]/g, "") // remove tudo que não for A-Z ou 0-9
+    )
     .refine(
       (v) =>
         /^[A-Z]{3}\d{4}$/.test(v) || // AAA1234
@@ -61,7 +64,7 @@ const vehicleSchema = z.object({
       "Placa inválida"
     ),
   mileage: z.preprocess(
-    (v) => Number(String(v).replace(/[^\d.-]/g, "")),
+    (v) => Number(String(v).replace(/[^\d]/g, "")) || 0,
     z.number().nonnegative("Quilometragem deve ser um número válido")
   ),
 });
@@ -99,7 +102,14 @@ export function MyVehicles() {
   /* ------------------------- handlers principais ----------------------- */
   const handleEditVehicle = (vehicle: VehicleRow) => {
     setErrorMessage(null);
-    setEditingVehicle({ ...vehicle });
+    // mantém id para o PUT
+    setEditingVehicle({
+      id: vehicle.id,
+      name: vehicle.name ?? "",
+      model: vehicle.model ?? "",
+      plate: vehicle.plate ?? "",
+      mileage: vehicle.mileage ?? 0,
+    });
     setEditingMileageText(formatKm(vehicle.mileage));
   };
 
@@ -180,7 +190,7 @@ export function MyVehicles() {
         >
           <AlertDialogTrigger asChild>
             <Button variant={"default"} onClick={handleAddVehicle}>
-              Cadastrar Veículo <Plus />
+              Cadastrar Veículo <Plus className="ml-2 h-4 w-4" />
             </Button>
           </AlertDialogTrigger>
 
@@ -287,14 +297,18 @@ export function MyVehicles() {
               <CardContent className="flex justify-between items-center">
                 <div>
                   <p className="text-sm text-gray-500">
-                    Modelo: <span className="font-medium">{vehicle.model}</span>
+                    Modelo:{" "}
+                    <span className="font-medium">{vehicle.model ?? "-"}</span>
                   </p>
                   <p className="text-sm text-gray-500">
-                    Placa: <span className="font-medium">{vehicle.plate}</span>
+                    Placa:{" "}
+                    <span className="font-medium">{vehicle.plate ?? "-"}</span>
                   </p>
                   <p className="text-sm text-gray-500">
                     Quilometragem:{" "}
-                    <span className="font-medium">{km(vehicle.mileage)}</span>
+                    <span className="font-medium">
+                      {km(vehicle.mileage ?? 0)}
+                    </span>
                   </p>
                 </div>
 

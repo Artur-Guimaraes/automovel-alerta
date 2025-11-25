@@ -1,4 +1,3 @@
-// src/services/vehicle.service.ts
 import { api } from "@/lib/api";
 
 export type Vehicle = {

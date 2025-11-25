@@ -222,6 +222,41 @@ app.delete("/api/vehicles/:id", async (req, res) => {
   res.status(204).end();
 });
 
+// PUT (editar veículo)
+app.put("/api/vehicles/:id", async (req, res) => {
+  const ownerId = (req as any).userId as string;
+  const id = Number(req.params.id);
+
+  const { name, model, plate, mileage } = (req.body ?? {}) as {
+    name?: string;
+    model?: string;
+    plate?: string;
+    mileage?: number | string;
+  };
+
+  const patch: any = {};
+  if (name !== undefined) patch.name = String(name);
+  if (model !== undefined) patch.model = String(model);
+  if (plate !== undefined) patch.plate = String(plate);
+  if (mileage !== undefined)
+    patch.mileage =
+      Number(
+        typeof mileage === "string" ? mileage.replace(/\D/g, "") : mileage
+      ) || 0;
+
+  const rows = await db
+    .update(schema.vehicles)
+    .set(patch)
+    .where(
+      and(eq(schema.vehicles.id, id), eq(schema.vehicles.ownerId, ownerId))
+    )
+    .returning();
+
+  if (!rows.length)
+    return res.status(404).json({ error: "Veículo não encontrado" });
+  res.json(rows[0]);
+});
+
 /** -------- ABASTECIMENTOS -------- */
 app.get("/api/refuelings/:vehicleId", async (req, res) => {
   const ownerId = (req as any).userId as string;
@@ -240,15 +275,18 @@ app.get("/api/refuelings/:vehicleId", async (req, res) => {
 
 app.post("/api/refuelings", async (req, res) => {
   const ownerId = (req as any).userId as string;
-  const { vehicleId, liters, pricePerLiter, date, fuelType } = req.body || {};
+  const { vehicleId, liters, pricePerLiter, date, fuelType, mileage } =
+    req.body || {};
 
   const l = toNumberBR(liters);
   const ppl = toNumberBR(pricePerLiter);
-  const ft = String(fuelType || "gasolina");
+  const ft = String(fuelType || "GASOLINA");
+  const km = mileage != null ? Number(String(mileage).replace(/\D/g, "")) : NaN;
 
-  if (!vehicleId || !date || isNaN(l) || isNaN(ppl)) {
+  if (!vehicleId || !date || isNaN(l) || isNaN(ppl) || isNaN(km)) {
     return res.status(400).json({
-      error: "vehicleId, liters, pricePerLiter e date são obrigatórios",
+      error:
+        "vehicleId, liters, pricePerLiter, date e mileage são obrigatórios",
     });
   }
 
@@ -265,6 +303,7 @@ app.post("/api/refuelings", async (req, res) => {
       total,
       date: epoch,
       fuelType: ft,
+      mileage: km,
     })
     .returning();
 
@@ -472,6 +511,15 @@ app.get("/api/costs/summary", async (req, res) => {
   res.json({ period, vehicleId: byVehicle ?? null, summary });
 });
 
+/**
+ * -------- MÉTRICAS DE ABASTECIMENTO (usando deltas entre abastecimentos) --------
+ * Regra:
+ * - Ordena abastecimentos por data ASC e usa pares consecutivos (prev -> curr)
+ * - Intervalo entra no período se a data do "curr" ∈ [fromSec, nowSec]
+ * - Km do intervalo = mileage(curr) - mileage(prev) (descarta se <= 0 ou faltando)
+ * - Litros/custo do intervalo são os do abastecimento "curr"
+ * - Aggrega por tipo de combustível do "curr"
+ */
 app.get("/api/refuelings/:vehicleId/metrics", async (req, res) => {
   try {
     const vehicleId = Number(req.params.vehicleId);
@@ -482,79 +530,73 @@ app.get("/api/refuelings/:vehicleId/metrics", async (req, res) => {
     const nowSec = Math.floor(Date.now() / 1000);
     const fromSec = nowSec - rangeDays * 24 * 60 * 60;
 
-    // 1) Somatórios de combustível no período
-    const fuels = await db
+    // Precisamos dos abastecimentos no período + o último ANTES do período
+    // para conseguir formar o primeiro par.
+    const rows = await db
       .select({
         id: refuelings.id,
         liters: refuelings.liters,
         pricePerLiter: refuelings.pricePerLiter,
-        total: refuelings.total, // pode ser null; se for, calculamos
+        total: refuelings.total,
         date: refuelings.date,
         fuelType: refuelings.fuelType,
+        mileage: refuelings.mileage,
       })
       .from(refuelings)
-      .where(
-        and(
-          eq(refuelings.vehicleId, vehicleId),
-          gte(refuelings.date, fromSec),
-          lte(refuelings.date, nowSec)
-        )
-      )
-      .orderBy(desc(refuelings.date));
+      .where(eq(refuelings.vehicleId, vehicleId))
+      .orderBy(refuelings.date); // ASC
 
-    const fillups = fuels.length;
-    const liters = fuels.reduce((acc, r) => acc + Number(r.liters || 0), 0);
-    const fuelCost = fuels.reduce((acc, r) => {
-      const t =
-        r.total != null
-          ? Number(r.total)
-          : Number(r.liters || 0) * Number(r.pricePerLiter || 0);
-      return acc + t;
-    }, 0);
-    const avgPricePerLiter = liters > 0 ? fuelCost / liters : 0;
+    // separa o que interessa por data, mas manteremos um "prev" que pode ser < fromSec
+    let usedLitersTotal = 0;
+    let kmTotal = 0;
+    let fuelCost = 0;
 
-    // breakdown por tipo (se você usa "GASOLINA"/"ETANOL" etc.)
     const byFuelType: Record<string, { liters: number; cost: number }> = {};
-    for (const r of fuels) {
-      const type = r.fuelType || "DESCONHECIDO";
+
+    // ajuda a obter total/custo do registro
+    const getCost = (r: any) =>
+      r.total != null
+        ? Number(r.total)
+        : Number(r.liters || 0) * Number(r.pricePerLiter || 0);
+
+    // percorrer pares consecutivos
+    for (let i = 1; i < rows.length; i++) {
+      const prev = rows[i - 1];
+      const curr = rows[i];
+
+      const prevKm = Number(prev.mileage ?? NaN);
+      const currKm = Number(curr.mileage ?? NaN);
+      if (!isFinite(prevKm) || !isFinite(currKm)) continue;
+
+      const deltaKm = currKm - prevKm;
+      if (deltaKm <= 0) continue; // ignora resets/erros
+
+      // intervalo conta para o período se o "curr" está dentro da janela
+      if (curr.date < fromSec || curr.date > nowSec) continue;
+
+      const usedLiters = Number(curr.liters || 0);
+      const intervalCost = getCost(curr);
+      const type = curr.fuelType || "DESCONHECIDO";
+
+      usedLitersTotal += usedLiters;
+      kmTotal += deltaKm;
+      fuelCost += intervalCost;
+
       if (!byFuelType[type]) byFuelType[type] = { liters: 0, cost: 0 };
-      const t =
-        r.total != null
-          ? Number(r.total)
-          : Number(r.liters || 0) * Number(r.pricePerLiter || 0);
-      byFuelType[type].liters += Number(r.liters || 0);
-      byFuelType[type].cost += t;
+      byFuelType[type].liters += usedLiters;
+      byFuelType[type].cost += intervalCost;
     }
 
-    // 2) Quilometragem rodada no período
-    // Estratégia simples e robusta (sem nova tabela): usa mileage das MANUTENÇÕES
-    // Pega a manutenção mais recente <= now e a mais recente <= from.
-    const endMileage = await getMaintenanceMileageAtOrBefore(vehicleId, nowSec);
-    const startMileage = await getMaintenanceMileageAtOrBefore(
-      vehicleId,
-      fromSec
+    const avgPricePerLiter =
+      usedLitersTotal > 0 ? fuelCost / usedLitersTotal : 0;
+    const avgKmPerL = usedLitersTotal > 0 ? kmTotal / usedLitersTotal : null;
+    const costPerKm = kmTotal > 0 ? fuelCost / kmTotal : null;
+
+    // fillups = quantidade de "curr" considerados no período (aproxima: soma litros > 0)
+    const fillups = Object.values(byFuelType).reduce(
+      (acc, v) => acc + (v.liters > 0 ? 1 : 0),
+      0
     );
-
-    let kmDriven: number | null = null;
-    if (endMileage && startMileage) {
-      kmDriven = Math.max(0, endMileage.mileage - startMileage.mileage);
-    } else {
-      // fallback simples (opcional): tenta usar vehicles.mileage como "fim"
-      const v = await db
-        .select({ mileage: vehicles.mileage })
-        .from(vehicles)
-        .where(eq(vehicles.id, vehicleId))
-        .limit(1);
-
-      if (v.length && v[0].mileage != null && startMileage) {
-        kmDriven = Math.max(0, Number(v[0].mileage) - startMileage.mileage);
-      }
-    }
-
-    // 3) Derivados
-    const avgKmPerL = kmDriven != null && liters > 0 ? kmDriven / liters : null;
-    const costPerKm =
-      kmDriven != null && kmDriven > 0 ? fuelCost / kmDriven : null;
 
     return res.json({
       vehicleId,
@@ -562,11 +604,11 @@ app.get("/api/refuelings/:vehicleId/metrics", async (req, res) => {
       from: fromSec,
       to: nowSec,
       fillups,
-      liters,
+      liters: usedLitersTotal,
       fuelCost,
       avgPricePerLiter,
       byFuelType,
-      kmDriven,
+      kmDriven: kmTotal,
       avgKmPerL,
       costPerKm,
     });

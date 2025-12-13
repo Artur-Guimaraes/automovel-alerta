@@ -10,7 +10,7 @@ import {
   type Maintenance as Row,
 } from "@/services/maintenance.service";
 import { supabase } from "@/supabaseClient";
-
+import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -84,6 +84,7 @@ const maskKM = (raw: string) => {
 /* ================================= Componente ================================= */
 export function Maintenance() {
   const { theme } = useTheme();
+  const [searchParams] = useSearchParams();
   const isDarkMode = theme === "dark";
   const axisColor = isDarkMode ? "#d1d5db" : "#374151";
   const gridColor = isDarkMode ? "#4b5563" : "#e5e7eb";
@@ -99,8 +100,24 @@ export function Maintenance() {
   const [vehicleId, setVehicleId] = useState<number | undefined>(undefined);
 
   useEffect(() => {
-    if (!vehicleId && vehicles?.length) setVehicleId(vehicles[0].id);
-  }, [vehicles, vehicleId]);
+    if (!vehicles?.length) return;
+
+    // tenta pegar o vehicleId da URL (?vehicleId=123)
+    const fromUrl = searchParams.get("vehicleId");
+    if (fromUrl) {
+      const id = Number(fromUrl);
+      const exists = vehicles.find((v) => v.id === id);
+      if (exists) {
+        setVehicleId(id);
+        return;
+      }
+    }
+
+    // fallback: se não tiver nada, pega o primeiro
+    if (!vehicleId) {
+      setVehicleId(vehicles[0].id);
+    }
+  }, [vehicles, vehicleId, searchParams]);
 
   // sessão para exibir “proprietário”
   const [me, setMe] = useState<string | null>(null);

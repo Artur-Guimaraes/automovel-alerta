@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/components/theme/theme-provider";
@@ -40,6 +42,7 @@ function fBRL(n: number) {
 }
 
 export function Home() {
+  const navigate = useNavigate();
   const { theme } = useTheme();
   const isDarkMode = theme === "dark";
   const axisColor = isDarkMode ? "#d1d5db" : "#374151";
@@ -80,119 +83,167 @@ export function Home() {
     })();
   }, [selectedVehicleId, range]);
 
+  const toEpochSec = (value: number | string | Date): number => {
+    if (typeof value === "number") return value;
+    const dt = new Date(value);
+    return Math.floor(dt.getTime() / 1000) || 0;
+  };
+
+  const nowSec = Math.floor(Date.now() / 1000);
+
   const totalVehicles = vehicles.length;
+
+  // Próximas manutenções = datas futuras
   const pendingMaintenances = useMemo(
     () =>
-      maintenances.filter(
-        (maintenance: any) =>
-          maintenance.status === "Pendente" ||
-          maintenance.status === "Próximo a vencer"
-      ),
-    [maintenances]
+      maintenances.filter((maintenance: any) => {
+        const maintenanceDate = toEpochSec(maintenance.date);
+        return maintenanceDate >= nowSec;
+      }),
+    [maintenances, nowSec]
   );
 
-  const lastMaintenance = useMemo(
-    () =>
-      [...maintenances]
-        .filter((m: any) => m) // caso venha vazio
-        .sort((a: any, b: any) => Number(b.date) - Number(a.date))[0],
-    [maintenances]
-  );
+  // Última manutenção = última com data <= hoje
+  const lastMaintenance = useMemo(() => {
+    const past = maintenances.filter((m: any) => {
+      const maintenanceDate = toEpochSec(m.date);
+      return maintenanceDate <= nowSec;
+    });
+    return past.sort(
+      (a: any, b: any) => toEpochSec(b.date) - toEpochSec(a.date)
+    )[0];
+  }, [maintenances, nowSec]);
 
-  // Para o gráfico de quilometragem por veículo, usamos a mileage que existir nos dados do veículo
+  // Para o gráfico de quilometragem por veículo
   const mileageData = vehicles.map((vehicle) => ({
     name: vehicle.name,
     mileage: Number(vehicle.mileage ?? 0),
   }));
 
-  // para o gráfico de gastos com manutenção, usamos as manutenções do veículo selecionado
+  // Gráfico de gastos com manutenção (somente do veículo selecionado)
   const maintenanceCostSeries = (maintenances || [])
     .filter((m) =>
       selectedVehicleId ? m.vehicleId === selectedVehicleId : true
     )
     .sort((a, b) => Number(a.date) - Number(b.date))
-    .map((maintenance) => ({
-      date: new Date(
+    .map((maintenance) => {
+      const dateObj = new Date(
         typeof maintenance.date === "number"
           ? maintenance.date * 1000
           : maintenance.date
-      )
-        .toISOString()
-        .slice(0, 10),
-      cost: Number(maintenance.cost ?? 0),
-    }));
+      );
+      return {
+        // DD/MM/AA
+        date: dateObj.toLocaleDateString("pt-BR", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "2-digit",
+        }),
+        cost: Number(maintenance.cost ?? 0),
+      };
+    });
 
   return (
     <div className="flex flex-col min-h-screen gap-6">
       {/* Cabeçalho com seletor de veículo e período dos KPIs */}
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Resumo</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Resumo</h1>
           <p className="text-sm text-muted-foreground">
             Visão geral dos seus veículos e custos.
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-3">
-          <Select
-            value={selectedVehicleId ? String(selectedVehicleId) : undefined}
-            onValueChange={(v) => setSelectedVehicleId(Number(v))}
-          >
-            <SelectTrigger className="w-[240px]">
-              <SelectValue placeholder="Selecione um veículo" />
-            </SelectTrigger>
-            <SelectContent>
-              {vehicles.map((v) => (
-                <SelectItem key={v.id} value={String(v.id)}>
-                  {v.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+          <div>
+            <div className="text-xs text-muted-foreground mb-1">Veículo</div>
+            <Select
+              value={selectedVehicleId?.toString() ?? ""}
+              onValueChange={(value) =>
+                setSelectedVehicleId(value ? Number(value) : null)
+              }
+            >
+              <SelectTrigger className="w-[220px]">
+                <SelectValue
+                  placeholder={
+                    vehicles.length ? "Selecione um veículo" : "Sem veículos"
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {vehicles.map((vehicle) => (
+                  <SelectItem key={vehicle.id} value={vehicle.id.toString()}>
+                    {vehicle.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-          <Select value={range} onValueChange={(v) => setRange(v as any)}>
-            <SelectTrigger className="w-[200px]">
-              <SelectValue placeholder="Período" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="30d">Últimos 30 dias</SelectItem>
-              <SelectItem value="60d">Últimos 60 dias</SelectItem>
-              <SelectItem value="90d">Últimos 90 dias</SelectItem>
-              <SelectItem value="180d">Últimos 180 dias</SelectItem>
-              <SelectItem value="365d">Últimos 12 meses</SelectItem>
-            </SelectContent>
-          </Select>
+          <div>
+            <div className="text-xs text-muted-foreground mb-1">Período</div>
+            <Select
+              value={range}
+              onValueChange={(value) =>
+                setRange(value as "30d" | "60d" | "90d" | "180d" | "365d")
+              }
+            >
+              <SelectTrigger className="w-[180px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="30d">Últimos 30 dias</SelectItem>
+                <SelectItem value="60d">Últimos 60 dias</SelectItem>
+                <SelectItem value="90d">Últimos 90 dias</SelectItem>
+                <SelectItem value="180d">Últimos 180 dias</SelectItem>
+                <SelectItem value="365d">Últimos 12 meses</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </div>
 
       {/* Cards superiores */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card>
-          <CardHeader>
+        {/* 1 - Veículos cadastrados */}
+        <Card className="flex flex-col">
+          <CardHeader className="pb-2 text-center">
             <CardTitle>Veículos Cadastrados</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="flex flex-1 flex-col items-center justify-center">
             <p className="text-3xl font-bold">{totalVehicles}</p>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
+        {/* 2 - Próximas manutenções */}
+        <Card className="flex flex-col">
+          <CardHeader className="pb-2 text-center">
             <CardTitle>Próximas Manutenções</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="flex flex-1 flex-col items-center justify-center">
             <p className="text-3xl font-bold">{pendingMaintenances.length}</p>
-            <Button variant="outline" className="mt-2 w-full">
+            <Button
+              variant="outline"
+              className="mt-3 w-full"
+              onClick={() => {
+                if (selectedVehicleId) {
+                  navigate(`/app/maintenance?vehicleId=${selectedVehicleId}`);
+                } else {
+                  navigate("/maintenance");
+                }
+              }}
+            >
               Ver todas
             </Button>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
+        {/* 3 - Última manutenção */}
+        <Card className="flex flex-col">
+          <CardHeader className="pb-2 text-center">
             <CardTitle>Última Manutenção</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="flex flex-1 flex-col items-center justify-center text-center">
             {lastMaintenance ? (
               <>
                 <p className="text-lg font-semibold">
@@ -215,6 +266,7 @@ export function Home() {
 
       {/* Dois gráficos lado a lado */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Gráfico de km por veículo */}
         <Card className="p-4">
           <CardHeader>
             <CardTitle>Quilometragem dos Veículos</CardTitle>
@@ -225,13 +277,17 @@ export function Home() {
                 <CartesianGrid stroke={gridColor} />
                 <XAxis dataKey="name" stroke={axisColor} />
                 <YAxis stroke={axisColor} />
-                <Tooltip />
+                <Tooltip
+                  formatter={(value) => [`${value} km`, "Quilometragem"]}
+                  labelFormatter={(label) => `Veículo: ${label}`}
+                />
                 <Bar dataKey="mileage" fill={barColor} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
 
+        {/* Gráfico de gastos com manutenção */}
         <Card className="p-4">
           <CardHeader>
             <CardTitle>Gastos com Manutenção</CardTitle>
@@ -241,8 +297,14 @@ export function Home() {
               <LineChart data={maintenanceCostSeries}>
                 <CartesianGrid stroke={gridColor} />
                 <XAxis dataKey="date" stroke={axisColor} />
-                <YAxis stroke={axisColor} />
-                <Tooltip />
+                <YAxis
+                  stroke={axisColor}
+                  tickFormatter={(value) => fBRL(Number(value))}
+                />
+                <Tooltip
+                  formatter={(value) => [fBRL(Number(value)), "Custo"]}
+                  labelFormatter={(label) => `Data: ${label}`}
+                />
                 <Line
                   type="monotone"
                   dataKey="cost"
@@ -254,7 +316,7 @@ export function Home() {
           </CardContent>
         </Card>
 
-        {/* KPIs horizontais (ocupa a mesma largura das duas caixas dos gráficos) */}
+        {/* KPIs horizontais */}
         <div className="md:col-span-2">
           <Card>
             <CardHeader>
@@ -265,6 +327,7 @@ export function Home() {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* Consumo médio */}
                 <div className="rounded-xl border p-4">
                   <div className="text-xs text-muted-foreground">
                     Consumo médio
@@ -279,6 +342,7 @@ export function Home() {
                   </div>
                 </div>
 
+                {/* Custo por km */}
                 <div className="rounded-xl border p-4">
                   <div className="text-xs text-muted-foreground">
                     Custo por km
@@ -293,6 +357,7 @@ export function Home() {
                   </div>
                 </div>
 
+                {/* Gasto com combustível */}
                 <div className="rounded-xl border p-4">
                   <div className="text-xs text-muted-foreground">
                     Gasto com combustível
@@ -306,6 +371,7 @@ export function Home() {
                   </div>
                 </div>
 
+                {/* Km rodados (estimado) */}
                 <div className="rounded-xl border p-4">
                   <div className="text-xs text-muted-foreground">
                     Km rodados (estimado)
@@ -320,25 +386,6 @@ export function Home() {
                   </div>
                 </div>
               </div>
-
-              {/* breakdown por tipo de combustível (opcional, compacto) */}
-              {fuelMetrics && fuelMetrics.byFuelType && (
-                <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                  {Object.entries(fuelMetrics.byFuelType).map(([type, agg]) => (
-                    <div key={type} className="rounded-lg border p-3 text-sm">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium">{type}</span>
-                        <span className="text-muted-foreground">
-                          {Number(agg.liters).toFixed(2)} L
-                        </span>
-                      </div>
-                      <div className="mt-1 text-muted-foreground">
-                        {fBRL(Number(agg.cost))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
             </CardContent>
           </Card>
         </div>

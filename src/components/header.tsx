@@ -84,7 +84,7 @@ export function Header() {
 
           <nav className="flex items-center space-x-8 lg:space-x-10">
             <NavLink
-              to="/"
+              to="/app"
               className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground"
             >
               <HomeIcon className="h-4 w-4" />
@@ -92,7 +92,7 @@ export function Header() {
             </NavLink>
 
             <NavLink
-              to="/vehicles"
+              to="/app/vehicles"
               className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground"
             >
               <Car className="h-4 w-4" />
@@ -100,7 +100,7 @@ export function Header() {
             </NavLink>
 
             <NavLink
-              to="/maintenance"
+              to="/app/maintenance"
               className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground"
             >
               <Wrench className="h-4 w-4" />
@@ -108,7 +108,7 @@ export function Header() {
             </NavLink>
 
             <NavLink
-              to="/refueling"
+              to="/app/refueling"
               className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground"
             >
               <Fuel className="h-4 w-4" />
@@ -116,7 +116,7 @@ export function Header() {
             </NavLink>
 
             <NavLink
-              to="/expenses"
+              to="/app/expenses"
               className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground"
             >
               <Receipt className="h-4 w-4" />
@@ -133,21 +133,27 @@ export function Header() {
                 <DropdownMenuLabel>Ferramentas</DropdownMenuLabel>
 
                 <DropdownMenuItem asChild>
-                  <NavLink to="/comparator" className="flex items-center gap-2">
+                  <NavLink
+                    to="/app/comparator"
+                    className="flex items-center gap-2"
+                  >
                     <GalleryHorizontalEnd className="h-4 w-4" />
                     Comparador
                   </NavLink>
                 </DropdownMenuItem>
 
                 <DropdownMenuItem asChild>
-                  <NavLink to="/checklist" className="flex items-center gap-2">
+                  <NavLink
+                    to="/app/checklist"
+                    className="flex items-center gap-2"
+                  >
                     <ListChecks className="h-4 w-4" />
                     Checklist de viagem
                   </NavLink>
                 </DropdownMenuItem>
 
                 <DropdownMenuItem asChild>
-                  <NavLink to="/fines" className="flex items-center gap-2">
+                  <NavLink to="/app/fines" className="flex items-center gap-2">
                     <Receipt className="h-4 w-4" />
                     Multas
                   </NavLink>

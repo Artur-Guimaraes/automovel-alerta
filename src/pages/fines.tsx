@@ -86,7 +86,7 @@ type Fine = {
   prazo: string; // ISO date
   hodometro?: number | null;
   pdfName?: string;
-  pdfUrl?: string;
+  pdfDataUrl?: string; // PDF salvo em base64/data URL
 };
 
 const schema = z.object({
@@ -123,8 +123,8 @@ export default function Fines() {
 
   // form
   const pdfRef = useRef<HTMLInputElement | null>(null);
-  const [pdfFile, setPdfFile] = useState<File | null>(null);
-  const [pdfUrl, setPdfUrl] = useState<string | undefined>();
+  const [pdfName, setPdfName] = useState<string | undefined>();
+  const [pdfDataUrl, setPdfDataUrl] = useState<string | undefined>();
 
   const [form, setForm] = useState({
     local: "",
@@ -144,52 +144,51 @@ export default function Fines() {
     localStorage.setItem("fines@autos", JSON.stringify(fines));
   }, [fines]);
 
-  // pedir permissão notificações
-  useEffect(() => {
-    if ("Notification" in window && Notification.permission === "default") {
-      Notification.requestPermission().catch(() => void 0);
-    }
-  }, []);
-
-  // timers de prazo
-  useEffect(() => {
-    const timers: number[] = [];
-
-    fines.forEach((f) => {
-      const due = new Date(f.prazo).getTime();
-      const now = Date.now();
-      const ms = due - now;
-      if (ms <= 0) {
-        notify("Multa vencida", `Prazo expirou para: ${f.local}`);
-        return;
-      }
-      const t = window.setTimeout(() => {
-        notify(
-          "Vence hoje",
-          `Multa (${f.gravidade}) em ${f.local} vence hoje.`
-        );
-      }, ms);
-      timers.push(t);
-    });
-
-    return () => timers.forEach(clearTimeout);
+  // pontos dos últimos 12 meses
+  const totalPoints12m = useMemo(() => {
+    const now = new Date();
+    const start = addDays(now, -365);
+    return fines
+      .filter((f) => isWithinInterval(new Date(f.data), { start, end: now }))
+      .reduce((acc, f) => acc + (f.pontos || 0), 0);
   }, [fines]);
 
-  function notify(title: string, body: string) {
-    if ("Notification" in window && Notification.permission === "granted") {
-      try {
-        new Notification(title, { body });
-        return;
-      } catch {}
-    }
-    alert(`${title}\n${body}`);
-  }
+  // lembrete de vencimento próximo (3 dias) — apenas visual na tela
+  const dueSoonList = useMemo(() => {
+    const now = new Date();
+    const end = addDays(now, 3);
+    return fines.filter((f) =>
+      isWithinInterval(new Date(f.prazo), { start: now, end })
+    );
+  }, [fines]);
 
   function onPdfChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0] || null;
-    setPdfFile(f);
-    if (pdfUrl) URL.revokeObjectURL(pdfUrl);
-    setPdfUrl(f ? URL.createObjectURL(f) : undefined);
+    const file = e.target.files?.[0] || null;
+
+    if (!file) {
+      setPdfName(undefined);
+      setPdfDataUrl(undefined);
+      return;
+    }
+
+    if (file.type !== "application/pdf") {
+      alert("Por favor, selecione um arquivo PDF.");
+      if (pdfRef.current) pdfRef.current.value = "";
+      setPdfName(undefined);
+      setPdfDataUrl(undefined);
+      return;
+    }
+
+    setPdfName(file.name);
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result === "string") {
+        setPdfDataUrl(result); // data:application/pdf;base64,...
+      }
+    };
+    reader.readAsDataURL(file);
   }
 
   function resetForm() {
@@ -205,12 +204,9 @@ export default function Fines() {
       prazo: addDays(new Date(), 15),
       hodometroMask: "",
     });
-    setPdfFile(null);
+    setPdfName(undefined);
+    setPdfDataUrl(undefined);
     if (pdfRef.current) pdfRef.current.value = "";
-    if (pdfUrl) {
-      URL.revokeObjectURL(pdfUrl);
-      setPdfUrl(undefined);
-    }
   }
 
   function addFine(e: React.FormEvent) {
@@ -237,36 +233,23 @@ export default function Fines() {
       descricao: parsed.data.descricao,
       prazo: toISODate(parsed.data.prazo),
       hodometro: parsed.data.hodometroMask ?? null,
-      pdfName: pdfFile?.name,
-      pdfUrl,
+      pdfName,
+      pdfDataUrl,
     };
 
     setFines((old) => [f, ...old]);
     resetForm();
   }
 
-  // pontos dos últimos 12 meses
-  const totalPoints12m = useMemo(() => {
-    const now = new Date();
-    const start = addDays(now, -365);
-    return fines
-      .filter((f) => isWithinInterval(new Date(f.data), { start, end: now }))
-      .reduce((acc, f) => acc + (f.pontos || 0), 0);
-  }, [fines]);
+  function openPdf(dataUrl?: string) {
+    if (!dataUrl) return;
 
-  // lembrete de vencimento próximo (3 dias)
-  const dueSoonList = useMemo(() => {
-    const now = new Date();
-    const end = addDays(now, 3);
-    return fines.filter((f) =>
-      isWithinInterval(new Date(f.prazo), { start: now, end })
-    );
-  }, [fines]);
-
-  function openPdf(url?: string) {
-    if (!url) return;
-    // abre nova guia confiável para objectURL
-    window.open(url, "_blank", "noopener,noreferrer");
+    const win = window.open(dataUrl, "_blank", "noopener,noreferrer");
+    if (!win) {
+      alert(
+        "O navegador bloqueou a abertura do PDF. Permita pop-ups para visualizar o arquivo."
+      );
+    }
   }
 
   return (
@@ -460,29 +443,30 @@ export default function Fines() {
                   accept="application/pdf"
                   onChange={onPdfChange}
                 />
-                {pdfFile ? (
+                {pdfName ? (
                   <Badge variant="secondary" className="truncate max-w-[200px]">
-                    {pdfFile.name}
+                    {pdfName}
                   </Badge>
                 ) : (
                   <Badge variant="outline" className="gap-1">
                     <UploadCloud className="h-3.5 w-3.5" /> PDF
                   </Badge>
                 )}
-                {pdfUrl && (
+                {pdfDataUrl && (
                   <Button
                     type="button"
                     variant="secondary"
                     size="sm"
-                    onClick={() => openPdf(pdfUrl)}
+                    onClick={() => openPdf(pdfDataUrl)}
                   >
                     Ver PDF
                   </Button>
                 )}
               </div>
-              {pdfUrl && (
+              {pdfDataUrl && (
                 <div className="mt-2 text-xs text-muted-foreground">
-                  * Pré-visualização local. O arquivo não é enviado ao servidor.
+                  * O PDF é armazenado apenas neste navegador (localmente) e não
+                  é enviado para nenhum servidor.
                 </div>
               )}
             </div>
@@ -542,11 +526,11 @@ export default function Fines() {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  {f.pdfUrl && (
+                  {f.pdfDataUrl && (
                     <Button
                       variant="secondary"
                       size="sm"
-                      onClick={() => openPdf(f.pdfUrl)}
+                      onClick={() => openPdf(f.pdfDataUrl)}
                     >
                       Ver PDF
                     </Button>

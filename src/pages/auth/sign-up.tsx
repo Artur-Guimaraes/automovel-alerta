@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/supabaseClient";
 
 import { Button } from "@/components/ui/button";
@@ -29,7 +29,7 @@ export default function SignUp() {
     supabase.auth
       .getSession()
       .then(({ data }: { data: { session: Session | null } }) => {
-        if (data.session) navigate("/", { replace: true });
+        if (data.session) navigate("/app", { replace: true });
       });
   }, [navigate]);
 

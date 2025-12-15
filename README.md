@@ -1,54 +1,112 @@
-# React + TypeScript + Vite
+# 💠 **Automóvel Alerta – Sistema de Monitoramento de Manutenções Automotivas**
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Uma plataforma web moderna para controle completo de veículos, abastecimentos, custos, manutenções e multas.
 
-Currently, two official plugins are available:
+---
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## 🚗 **Sobre o Projeto**
 
-## Expanding the ESLint configuration
+O **Automóvel Alerta** é um sistema web desenvolvido para auxiliar proprietários de veículos a monitorar e organizar todas as informações relacionadas ao uso e manutenção de seus carros.
 
-If you are developing a production application, we recommend updating the configuration to enable type aware lint rules:
+Ele centraliza dados como:
 
-- Configure the top-level `parserOptions` property like this:
+- Abastecimentos
+- Custos gerais
+- Revisões e serviços
+- Históricos de quilometragem
+- Multas
 
-```js
-export default tseslint.config({
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ["./tsconfig.node.json", "./tsconfig.app.json"],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-});
+A aplicação gera indicadores automáticos, gráficos, lembretes e fornece uma interface moderna e intuitiva, permitindo ao usuário acompanhar toda a vida útil do veículo.
+
+---
+
+## ✨ **Principais Funcionalidades**
+
+### 🔧 **Gerenciamento de Veículos**
+
+- Cadastro completo de veículos (placa, modelo, km, etc.)
+- Organização por usuário autenticado
+
+### ⛽ **Controle de Abastecimentos**
+
+- Registro de litros, preço por litro e odômetro
+- Cálculo automático de:
+  - Consumo médio
+  - Custo por km
+  - Km rodados
+- Gráficos interativos
+
+### 🛠 **Manutenções**
+
+- Registro de serviços com custo, data e km
+- Histórico completo
+- Identificação da última manutenção
+- Gráfico de gastos ao longo do tempo
+
+### 📄 **Multas**
+
+- Registro completo com gravidade, pontos e prazo
+
+### 📊 **Dashboard e KPIs**
+
+- KPIs de consumo, custo e desempenho
+- Visualização clara e direta
+- Indicadores automáticos baseados nos últimos abastecimentos
+
+### 🔐 **Autenticação**
+
+- Login com Google via Supabase
+
+---
+
+## 🧱 **Tecnologias Utilizadas**
+
+### **Front-end**
+
+- React + Vite
+- TypeScript
+- Tailwind CSS
+- Shadcn/UI
+- Tanstack Query
+- Axios
+
+### **Back-end**
+
+- Node.js + Express
+- Drizzle ORM
+- SQLite (ambiente local)
+
+### **Outros**
+
+- Supabase Auth
+- LocalStorage
+- Date-fns
+- Zod
+- Recharts
+
+## 🔧 **Como Rodar o Projeto**
+
+### 📌 **Pré-requisitos**
+
+- Node.js 18+
+- PNPM ou NPM
+- SQLite instalado (ou usar o arquivo já embutido)
+
+---
+
+## 📥 **1. Clonar o repositório**
+
+```sh
+git clone https://github.com/SEU_USUARIO/automovel-alerta.git
+cd automovel-alerta
 ```
 
-- Replace `tseslint.configs.recommended` to `tseslint.configs.recommendedTypeChecked` or `tseslint.configs.strictTypeChecked`
-- Optionally add `...tseslint.configs.stylisticTypeChecked`
-- Install [eslint-plugin-react](https://github.com/jsx-eslint/eslint-plugin-react) and update the config:
+## 📦 **2. Instalar dependências**
 
-```js
-// eslint.config.js
-import react from "eslint-plugin-react";
+- npm install
 
-export default tseslint.config({
-  // Set the react version
-  settings: { react: { version: "18.3" } },
-  plugins: {
-    // Add the react plugin
-    react,
-  },
-  rules: {
-    // other rules...
-    // Enable its recommended rules
-    ...react.configs.recommended.rules,
-    ...react.configs["jsx-runtime"].rules,
-  },
-});
-```
+## 🛠 **3. Executar**
 
-## References
-
-https://dev.to/boostup/uncaught-referenceerror-process-is-not-defined-12kg
+- Abrir dois terminais separados
+- rode **npm run dev** no front e no back-end
+- Um link com http://localhost:5173/ deve aparecer, a aplicação está rodando.

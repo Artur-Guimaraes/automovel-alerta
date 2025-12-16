@@ -32,14 +32,13 @@ export async function requireAuth(
     // debug leve: vê iss/aud/exp (não imprime token)
     try {
       const p = decodeJwt(token);
-      // console.log("[auth] iss:", p.iss, "aud:", p.aud, "exp:", p.exp);
     } catch {}
 
     // verificação forte via JWKS
     const { payload } = await jwtVerify(token, jwks(), {
       issuer: getIssuer(),
       audience: "authenticated",
-      clockTolerance: 10, // tolerância p/ descompasso de relógio
+      clockTolerance: 10,
     });
     (req as any).userId = String(payload.sub || "");
     if (!(req as any).userId) throw new Error("no-sub");

@@ -29,7 +29,7 @@ export const refuelings = sqliteTable("refuelings", {
   total: real("total").notNull(),
   date: integer("date").notNull(), // epoch (segundos)
   fuelType: text("fuel_type"), // GASOLINA, ETANOL, etc.
-  mileage: integer("mileage"), // <<< NOVO: km do odômetro no momento do abastecimento
+  mileage: integer("mileage"), // odômetro no momento do abastecimento
 });
 
 export const maintenances = sqliteTable("maintenances", {

@@ -86,7 +86,7 @@ type Fine = {
   prazo: string; // ISO date
   hodometro?: number | null;
   pdfName?: string;
-  pdfDataUrl?: string; // PDF salvo em base64/data URL
+  pdfDataUrl?: string;
 };
 
 const schema = z.object({

@@ -530,8 +530,6 @@ app.get("/api/refuelings/:vehicleId/metrics", async (req, res) => {
     const nowSec = Math.floor(Date.now() / 1000);
     const fromSec = nowSec - rangeDays * 24 * 60 * 60;
 
-    // Precisamos dos abastecimentos no período + o último ANTES do período
-    // para conseguir formar o primeiro par.
     const rows = await db
       .select({
         id: refuelings.id,

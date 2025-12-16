@@ -58,9 +58,7 @@ const vehicleSchema = z.object({
       (v) => v.toUpperCase().replace(/[^A-Z0-9]/g, "") // remove tudo que não for A-Z ou 0-9
     )
     .refine(
-      (v) =>
-        /^[A-Z]{3}\d{4}$/.test(v) || // AAA1234
-        /^[A-Z]{3}\d[A-Z]\d{2}$/.test(v), // AAA1A23
+      (v) => /^[A-Z]{3}\d{4}$/.test(v) || /^[A-Z]{3}\d[A-Z]\d{2}$/.test(v),
       "Placa inválida"
     ),
   mileage: z.preprocess(

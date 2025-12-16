@@ -86,14 +86,12 @@ function parseRowToOther(row: ExpenseRow): OtherExpense {
 }
 
 function buildRowPayload(input: OtherExpenseInput) {
-  // título que o back espera
   // regra: se houver descrição, "Categoria: descrição"; senão só "Categoria"
   const title =
     input.description && input.description.trim().length
       ? `${input.category}: ${input.description.trim()}`
       : input.category;
 
-  // data: aceitamos number/Date/string e repassamos como veio (o back já trata para epoch local)
   const date =
     typeof input.date === "number"
       ? input.date
@@ -131,7 +129,6 @@ export async function createOtherExpense(
   return parseRowToOther(row);
 }
 
-/** --- (Opcional) manter funções antigas para compatibilidade --- */
 export type Expense = ExpenseRow;
 
 export async function listExpenses(vehicleId: number): Promise<Expense[]> {
@@ -146,7 +143,6 @@ export async function createExpense(input: {
   date: string | Date | number;
   isRecurringMonthly?: boolean;
 }) {
-  // não converter para ISO aqui; o back já trata a data adequadamente
   const { data } = await api.post("/api/expenses", input);
   return data as Expense;
 }

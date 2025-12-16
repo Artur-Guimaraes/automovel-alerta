@@ -356,7 +356,6 @@ export default function Expenses() {
       )
     );
 
-    // 🔧 Aqui já arredondamos para 2 casas decimais para evitar 1800.4000000002 etc.
     const pizza = Array.from(porCategoriaMap.entries()).map(
       ([categoria, valor]) => ({
         categoria,
@@ -492,7 +491,6 @@ export default function Expenses() {
               dataKey="valor"
               nameKey="categoria"
               outerRadius={140}
-              // 🔧 Label customizado em BRL, em vez do número cru com muitas casas
               label={(entry: any) => fBRL(Number(entry.value))}
             >
               {chartData.pizza.map((p, i) => (

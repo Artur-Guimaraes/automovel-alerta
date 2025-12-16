@@ -22,7 +22,6 @@ import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Info } from "lucide-react";
 
-// 👉 ajuste o import abaixo se você tiver outro serviço para listar veículos
 import { listVehicles } from "@/services/comparator.service";
 
 // ---------- Tipos ----------
@@ -31,7 +30,7 @@ type Vehicle = {
   name: string;
 };
 
-// ---------- Presets por veículo (fixos para v1) ----------
+// ---------- Presets por veículo----------
 const PRESET_ITEMS = [
   { id: "docs", label: "Documentos (CNH, CRLV/CRLV-e, seguro)" },
   { id: "revisao", label: "Revisão em dia / sem luzes de alerta no painel" },
@@ -80,7 +79,7 @@ const fmtKm = (n?: number) =>
 
 // ---------- Página ----------
 export default function TripChecklist() {
-  // 1) Buscar veículos e selecionar o primeiro automaticamente
+  //Buscar veículos e selecionar o primeiro automaticamente
   const vehiclesQ = useQuery({
     queryKey: ["vehicles"],
     queryFn: listVehicles,
@@ -95,7 +94,7 @@ export default function TripChecklist() {
     }
   }, [vehicles, vehicleId]);
 
-  // 2) Estado por veículo em localStorage
+  //Estado por veículo em localStorage
   const [store, setStore] = useState<SavedState>(() => loadState());
 
   // snapshot do veículo atual
@@ -122,7 +121,7 @@ export default function TripChecklist() {
     });
   }
 
-  // 3) Derivados para cálculo da viagem
+  //cálculo da viagem
   const startOdo = vState?.startOdo ?? undefined;
   const plannedKm = vState?.plannedKm ?? undefined;
   const endOdo = vState?.endOdo ?? undefined;
@@ -140,7 +139,6 @@ export default function TripChecklist() {
       ? tripKm / fuelLiters
       : undefined;
 
-  // 4) UI
   return (
     <div className="mx-auto max-w-[1100px] p-6">
       <div className="mb-6 flex items-center justify-between">
@@ -283,7 +281,6 @@ export default function TripChecklist() {
                 <Button
                   variant="secondary"
                   onClick={() => {
-                    // atalho: chuta endOdo = startOdo + plannedKm
                     if (
                       typeof startOdo === "number" &&
                       typeof plannedKm === "number"

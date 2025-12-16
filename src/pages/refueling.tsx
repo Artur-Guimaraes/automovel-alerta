@@ -81,11 +81,11 @@ export default function RefuelingPage() {
   const [vehicleId, setVehicleId] = useState<number | null>(null);
   const [range, setRange] = useState<"30d" | "90d" | "180d" | "365d">("90d");
 
-  // form novo abastecimento
+  // form abastecimento
   const [liters, setLiters] = useState<string>("");
   const [pricePerLiter, setPricePerLiter] = useState<string>("");
   const [fuelType, setFuelType] = useState<string>("GASOLINA");
-  const [mileage, setMileage] = useState<string>(""); // <<< NOVO (obrigatório)
+  const [mileage, setMileage] = useState<string>("");
   const [dateStr, setDateStr] = useState<string>(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
@@ -246,8 +246,6 @@ export default function RefuelingPage() {
       return;
     }
 
-    // eficiência por tipo não vem detalhada — mostramos apenas custo/km com preços informados
-    // usando média geral do período (kmDriven / liters)
     const effGeral = m.avgKmPerL ?? null;
 
     const costKmGas =

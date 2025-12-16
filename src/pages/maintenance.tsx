@@ -529,7 +529,6 @@ export function Maintenance() {
                   notes: editNotes.trim() || null,
                   mileage:
                     editMileageValue !== undefined ? editMileageValue : 0,
-                  // IMPORTANTE: envie Date real para o backend
                   date: new Date(editDateSec * 1000),
                 };
                 updateMut.mutate({ id: editRow.id, patch });
